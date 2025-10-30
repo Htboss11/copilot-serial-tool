@@ -1,0 +1,91 @@
+{
+  "name": "serial-monitor",
+  "displayName": "Serial Monitor",
+  "description": "VS Code extension for serial port monitoring with MCP integration for AI agents",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.105.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "serial-monitor.open",
+        "title": "Open Serial Monitor",
+        "category": "Serial Monitor"
+      },
+      {
+        "command": "serial-monitor.listPorts",
+        "title": "List Serial Ports",
+        "category": "Serial Monitor"
+      },
+      {
+        "command": "serial-monitor.detectPico",
+        "title": "Detect Raspberry Pi Pico",
+        "category": "Serial Monitor"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Serial Monitor",
+      "properties": {
+        "serialMonitor.defaultBaudRate": {
+          "type": "number",
+          "default": 115200,
+          "description": "Default baud rate for serial connections"
+        },
+        "serialMonitor.bufferLines": {
+          "type": "number",
+          "default": 1000,
+          "description": "Number of lines to keep in buffer"
+        },
+        "serialMonitor.autoDetectPico": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically detect Raspberry Pi Pico devices"
+        },
+        "serialMonitor.watchTimeout": {
+          "type": "number",
+          "default": 60000,
+          "description": "Default timeout for watch operations (ms)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.18.13",
+    "@types/vscode": "^1.105.0",
+    "@typescript-eslint/eslint-plugin": "^8.45.0",
+    "@typescript-eslint/parser": "^8.45.0",
+    "@vscode/test-cli": "^0.0.11",
+    "@vscode/test-electron": "^2.5.2",
+    "esbuild": "^0.25.10",
+    "eslint": "^9.36.0",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@serialport/bindings-interface": "^1.2.2",
+    "@serialport/parser-readline": "^13.0.0",
+    "serialport": "^13.0.0"
+  }
+}
