@@ -8,8 +8,11 @@ export class SerialPanel {
     private _disposables: vscode.Disposable[] = [];
     private serialManager: SerialManager;
     private currentPort: string | null = null;
+    private autoReconnect: boolean = true;
+    private reconnectInterval: NodeJS.Timeout | null = null;
+    private isConnecting: boolean = false;
 
-    public static createOrShow(extensionUri: vscode.Uri, serialManager: SerialManager) {
+    public static createOrShow(extensionUri: vscode.Uri, serialManager: SerialManager, preSelectedPort?: string) {
         const column = vscode.window.activeTextEditor
             ? vscode.window.activeTextEditor.viewColumn
             : undefined;
@@ -17,6 +20,10 @@ export class SerialPanel {
         // If we already have a panel, show it.
         if (SerialPanel.currentPanel) {
             SerialPanel.currentPanel._panel.reveal(column);
+            // If a new port is specified, connect to it
+            if (preSelectedPort && preSelectedPort !== SerialPanel.currentPanel.currentPort) {
+                SerialPanel.currentPanel._connectToPort(preSelectedPort);
+            }
             return;
         }
 
@@ -31,16 +38,23 @@ export class SerialPanel {
             }
         );
 
-        SerialPanel.currentPanel = new SerialPanel(panel, extensionUri, serialManager);
+        SerialPanel.currentPanel = new SerialPanel(panel, extensionUri, serialManager, preSelectedPort);
     }
 
-    private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri, serialManager: SerialManager) {
+    private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri, serialManager: SerialManager, preSelectedPort?: string) {
         this._panel = panel;
         this._extensionUri = extensionUri;
         this.serialManager = serialManager;
 
         // Set the webview's initial html content
         this._update();
+
+        // Auto-connect to pre-selected port if provided
+        if (preSelectedPort) {
+            setTimeout(() => {
+                this._connectToPort(preSelectedPort);
+            }, 1000); // Give webview time to load
+        }
 
         // Listen for when the panel is disposed
         // This happens when the user closes the panel or when the panel is closed programmatically
@@ -68,6 +82,9 @@ export class SerialPanel {
                     case 'detectPico':
                         this._handleDetectPico();
                         return;
+                    case 'toggleAutoReconnect':
+                        this._handleToggleAutoReconnect();
+                        return;
                 }
             },
             null,
@@ -75,24 +92,87 @@ export class SerialPanel {
         );
     }
 
+    private async _connectToPort(port: string, baudRate: number = 115200) {
+        if (this.isConnecting) {
+            return;
+        }
+        
+        this.isConnecting = true;
+        try {
+            await this._handleConnect(port, baudRate);
+        } finally {
+            this.isConnecting = false;
+        }
+    }
+
+    private _startAutoReconnect() {
+        if (this.reconnectInterval) {
+            clearInterval(this.reconnectInterval);
+        }
+
+        if (this.autoReconnect && this.currentPort) {
+            this.reconnectInterval = setInterval(async () => {
+                if (!this.serialManager.isConnected(this.currentPort!) && !this.isConnecting) {
+                    this._panel.webview.postMessage({
+                        command: 'status',
+                        message: 'Attempting to reconnect...'
+                    });
+                    
+                    try {
+                        await this._connectToPort(this.currentPort!);
+                    } catch (error) {
+                        // Reconnection failed, will try again next interval
+                    }
+                }
+            }, 5000); // Try to reconnect every 5 seconds
+        }
+    }
+
+    private _stopAutoReconnect() {
+        if (this.reconnectInterval) {
+            clearInterval(this.reconnectInterval);
+            this.reconnectInterval = null;
+        }
+    }
+
+    private _handleToggleAutoReconnect() {
+        this.autoReconnect = !this.autoReconnect;
+        this._panel.webview.postMessage({
+            command: 'autoReconnectChanged',
+            enabled: this.autoReconnect
+        });
+
+        if (this.autoReconnect) {
+            this._startAutoReconnect();
+        } else {
+            this._stopAutoReconnect();
+        }
+    }
+
     private async _handleConnect(port: string, baudRate: number) {
         try {
-            await this.serialManager.connect(port, baudRate);
-            this.currentPort = port;
-            
-            // Set up data listener
-            this.serialManager.onData(port, (data: string) => {
+            const success = await this.serialManager.connect(port, baudRate);
+            if (success) {
+                this.currentPort = port;
+                
+                this._panel.webview.postMessage({
+                    command: 'connected',
+                    port: port,
+                    baudRate: baudRate
+                });
+
+                // Show a message that data will appear in Output channel
                 this._panel.webview.postMessage({
                     command: 'data',
-                    data: `[${new Date().toLocaleTimeString()}] ${data}`
+                    data: `[${new Date().toLocaleTimeString()}] Connected to ${port} - Check Output panel for serial data`
                 });
-            });
 
-            this._panel.webview.postMessage({
-                command: 'connected',
-                port: port,
-                baudRate: baudRate
-            });
+                // Start auto-reconnect monitoring
+                this._startAutoReconnect();
+            } else {
+                throw new Error('Connection failed');
+            }
+            
         } catch (error) {
             this._panel.webview.postMessage({
                 command: 'error',
@@ -102,13 +182,20 @@ export class SerialPanel {
     }
 
     private async _handleDisconnect() {
+        // Stop auto-reconnect when manually disconnecting
+        this._stopAutoReconnect();
+        
         if (this.currentPort) {
             try {
-                await this.serialManager.disconnect(this.currentPort);
-                this._panel.webview.postMessage({
-                    command: 'disconnected'
-                });
-                this.currentPort = null;
+                const success = await this.serialManager.disconnect(this.currentPort);
+                if (success) {
+                    this._panel.webview.postMessage({
+                        command: 'disconnected'
+                    });
+                    this.currentPort = null;
+                } else {
+                    throw new Error('Disconnect failed');
+                }
             } catch (error) {
                 this._panel.webview.postMessage({
                     command: 'error',
@@ -121,11 +208,15 @@ export class SerialPanel {
     private async _handleSend(data: string) {
         if (this.currentPort) {
             try {
-                await this.serialManager.send(this.currentPort, data);
-                this._panel.webview.postMessage({
-                    command: 'sent',
-                    data: data
-                });
+                const success = await this.serialManager.send(this.currentPort, data);
+                if (success) {
+                    this._panel.webview.postMessage({
+                        command: 'sent',
+                        data: data
+                    });
+                } else {
+                    throw new Error('Send failed');
+                }
             } catch (error) {
                 this._panel.webview.postMessage({
                     command: 'error',
@@ -135,7 +226,7 @@ export class SerialPanel {
         } else {
             this._panel.webview.postMessage({
                 command: 'error',
-                message: 'Not connected to any port'
+                message: 'No port connected'
             });
         }
     }
@@ -178,6 +269,14 @@ export class SerialPanel {
 
     public dispose() {
         SerialPanel.currentPanel = undefined;
+
+        // Stop auto-reconnect
+        this._stopAutoReconnect();
+
+        // Disconnect if connected
+        if (this.currentPort) {
+            this.serialManager.disconnect(this.currentPort).catch(console.error);
+        }
 
         // Clean up our resources
         this._panel.dispose();
@@ -307,13 +406,20 @@ export class SerialPanel {
             <button id="detectPico">Detect Pico</button>
             <button id="connectBtn">Connect</button>
             <button id="disconnectBtn" disabled>Disconnect</button>
+            <label>
+                <input type="checkbox" id="autoReconnectCheck" checked> Auto-Reconnect
+            </label>
             <button id="clearBtn">Clear</button>
         </div>
     </div>
 
-    <div id="status" class="status disconnected">Disconnected</div>
+    <div id="status" class="status disconnected">Ready - Waiting for connection</div>
 
-    <div id="output" class="output"></div>
+    <div id="output" class="output">🔍 Serial Monitor Ready
+📡 Connect to a port to see output
+🤖 MCP tools available for AI agent integration
+
+</div>
 
     <div class="input-section">
         <input type="text" id="sendInput" class="input-field" placeholder="Type command to send..." disabled>
@@ -334,6 +440,7 @@ export class SerialPanel {
         const sendBtn = document.getElementById('sendBtn');
         const output = document.getElementById('output');
         const status = document.getElementById('status');
+        const autoReconnectCheck = document.getElementById('autoReconnectCheck');
 
         let isConnected = false;
 
@@ -342,6 +449,7 @@ export class SerialPanel {
             const port = portSelect.value;
             const baudRate = parseInt(baudRateInput.value) || 115200;
             if (port) {
+                addToOutput('Connecting to ' + port + ' at ' + baudRate + ' baud...', 'info');
                 vscode.postMessage({
                     command: 'connect',
                     port: port,
@@ -351,6 +459,7 @@ export class SerialPanel {
         });
 
         disconnectBtn.addEventListener('click', () => {
+            addToOutput('Disconnecting...', 'info');
             vscode.postMessage({ command: 'disconnect' });
         });
 
@@ -381,6 +490,12 @@ export class SerialPanel {
             if (e.key === 'Enter') {
                 sendBtn.click();
             }
+        });
+
+        autoReconnectCheck.addEventListener('change', () => {
+            vscode.postMessage({ 
+                command: 'toggleAutoReconnect' 
+            });
         });
 
         // Handle messages from extension

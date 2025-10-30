@@ -3,12 +3,14 @@
 out/**
 node_modules/**
 src/**
+build/**
+releases/**
+docs/**
 .gitignore
 .yarnrc
-esbuild.js
-vsc-extension-quickstart.md
 **/tsconfig.json
 **/eslint.config.mjs
+**/esbuild.js
 **/*.map
 **/*.ts
 **/.vscode-test.*

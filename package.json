@@ -1,17 +1,206 @@
 {
   "name": "serial-monitor",
-  "displayName": "Serial Monitor",
-  "description": "VS Code extension for serial port monitoring with MCP integration for AI agents",
-  "version": "0.0.1",
-  "engines": {
-    "vscode": "^1.105.0"
+  "displayName": "Serial Monitor with Python Backend",
+  "description": "VS Code Serial Monitor Extension with MCP integration for AI agents, featuring background monitoring, session logging, and Python-based serial communication",
+  "version": "1.0.0",
+  "publisher": "Htboss11",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Htboss11/copilot-serial-tool.git"
   },
+  "bugs": {
+    "url": "https://github.com/Htboss11/copilot-serial-tool/issues"
+  },
+  "homepage": "https://github.com/Htboss11/copilot-serial-tool#readme",
+  "keywords": [
+    "serial",
+    "monitor",
+    "raspberry-pi",
+    "pico",
+    "mcp",
+    "ai-agent",
+    "python",
+    "iot",
+    "embedded",
+    "debugging"
+  ],
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "icon": "assets/icon.png",
   "categories": [
+    "Debuggers",
     "Other"
   ],
+  "galleryBanner": {
+    "color": "#2d3748",
+    "theme": "dark"
+  },
+  "ai": {
+    "tools": {
+      "available": true,
+      "description": "Provides MCP tools for AI agents to interact with serial devices programmatically. Enables automated device communication, monitoring, and debugging through Copilot integration.",
+      "usage": "Use @serial-monitor in chat to interact with connected devices. Available tools: connect, send, read, list-ports, session-info, start-watch, stop-watch."
+    }
+  },
   "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
+    "languageModelTools": [
+      {
+        "name": "serial_monitor_connect",
+        "displayName": "Connect to Serial Port",
+        "modelDescription": "Connect to a serial port with auto-detection for Raspberry Pi Pico devices. Use when user wants to connect to a device, start monitoring, or establish communication with hardware.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "port": {
+              "type": "string",
+              "description": "Serial port path (e.g., 'COM9') or 'auto' to detect Pico"
+            },
+            "baud_rate": {
+              "type": "number",
+              "description": "Baud rate (default: 115200)",
+              "default": 115200
+            }
+          },
+          "required": ["port"]
+        },
+        "tags": ["serial", "hardware", "raspberry-pi", "pico", "iot"]
+      },
+      {
+        "name": "serial_monitor_send",
+        "displayName": "Send Data to Device",
+        "modelDescription": "Send data to connected serial device. Use when user wants to send commands, control device, or transmit data to hardware.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "port": {
+              "type": "string",
+              "description": "Serial port path or 'auto'"
+            },
+            "data": {
+              "type": "string",
+              "description": "Data to send to device"
+            }
+          },
+          "required": ["port", "data"]
+        },
+        "tags": ["serial", "hardware", "communication", "send"]
+      },
+      {
+        "name": "serial_monitor_read",
+        "displayName": "Read Device Output",
+        "modelDescription": "Read data from serial port for specified duration. Use when user wants to capture device output, read sensor data, or monitor device communication.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "port": {
+              "type": "string",
+              "description": "Serial port path or 'auto'"
+            },
+            "duration": {
+              "type": "number",
+              "description": "Duration in seconds to read"
+            },
+            "timeout": {
+              "type": "number",
+              "description": "Timeout in milliseconds (optional)",
+              "default": 1000
+            }
+          },
+          "required": ["port", "duration"]
+        },
+        "tags": ["serial", "hardware", "read", "monitor"]
+      },
+      {
+        "name": "serial_monitor_list_ports",
+        "displayName": "List Serial Ports",
+        "modelDescription": "List all available serial ports. Use when user wants to discover devices, see available connections, or troubleshoot connectivity issues.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        },
+        "tags": ["serial", "hardware", "discovery", "ports"]
+      },
+      {
+        "name": "serial_monitor_session_info",
+        "displayName": "Get Session Information",
+        "modelDescription": "Get information about current and historical sessions. Use when user wants to view session history, check current status, or analyze logging data.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        },
+        "tags": ["serial", "session", "history", "logging"]
+      },
+      {
+        "name": "serial_monitor_start_watch",
+        "displayName": "Start Background Monitoring",
+        "modelDescription": "Start background monitoring with pattern matching. Use when user wants to monitor for specific patterns, watch for errors, or set up automated monitoring.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "port": {
+              "type": "string",
+              "description": "Serial port path or 'auto'"
+            },
+            "watch_for": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Array of patterns to watch for"
+            },
+            "timeout_ms": {
+              "type": "number",
+              "description": "Maximum monitoring duration in milliseconds"
+            },
+            "buffer_lines": {
+              "type": "number",
+              "description": "Buffer size (default: 100)",
+              "default": 100
+            }
+          },
+          "required": ["port", "watch_for", "timeout_ms"]
+        },
+        "tags": ["serial", "monitor", "background", "watch", "patterns"]
+      },
+      {
+        "name": "serial_monitor_check_watch",
+        "displayName": "Check Watch Status",
+        "modelDescription": "Check status of background monitoring task. Use when user wants to see monitoring results, check if patterns were found, or get watch task status.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string",
+              "description": "Task ID from start_watch"
+            }
+          },
+          "required": ["task_id"]
+        },
+        "tags": ["serial", "monitor", "status", "check"]
+      },
+      {
+        "name": "serial_monitor_stop_watch",
+        "displayName": "Stop Background Monitoring",
+        "modelDescription": "Stop background monitoring task. Use when user wants to cancel monitoring, stop background tasks, or end automated watching.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string",
+              "description": "Task ID to stop"
+            }
+          },
+          "required": ["task_id"]
+        },
+        "tags": ["serial", "monitor", "stop", "cancel"]
+      }
+    ],
     "commands": [
       {
         "command": "serial-monitor.open",
@@ -19,13 +208,18 @@
         "category": "Serial Monitor"
       },
       {
-        "command": "serial-monitor.listPorts",
-        "title": "List Serial Ports",
+        "command": "serial-monitor.showSessions",
+        "title": "Show Session Files",
         "category": "Serial Monitor"
       },
       {
-        "command": "serial-monitor.detectPico",
-        "title": "Detect Raspberry Pi Pico",
+        "command": "serial-monitor.sessionInfo",
+        "title": "Show Session Information",
+        "category": "Serial Monitor"
+      },
+      {
+        "command": "serial-monitor.checkDependencies",
+        "title": "Check Dependencies",
         "category": "Serial Monitor"
       }
     ],
@@ -48,6 +242,37 @@
           "default": true,
           "description": "Automatically detect Raspberry Pi Pico devices"
         },
+        "serialMonitor.backgroundMonitoring": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable passive background monitoring of COM9"
+        },
+        "serialMonitor.sessionTimeout": {
+          "type": "number",
+          "default": 3600,
+          "minimum": 60,
+          "maximum": 86400,
+          "description": "Passive monitoring timeout in seconds (60-86400)"
+        },
+        "serialMonitor.maxSessionFiles": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Maximum number of session files to keep (1-100)"
+        },
+        "serialMonitor.maxFileSize": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Maximum file size in MB before rotation (1-100)"
+        },
+        "serialMonitor.sessionDirectory": {
+          "type": "string",
+          "default": "serial-sessions",
+          "description": "Directory name for storing session files (relative to workspace)"
+        },
         "serialMonitor.watchTimeout": {
           "type": "number",
           "default": 60000,
@@ -58,22 +283,23 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
-    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "compile": "npm run check-types && npm run lint && node build/esbuild.js",
     "watch": "npm-run-all -p watch:*",
-    "watch:esbuild": "node esbuild.js --watch",
-    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
-    "package": "npm run check-types && npm run lint && node esbuild.js --production",
-    "compile-tests": "tsc -p . --outDir out",
-    "watch-tests": "tsc -p . -w --outDir out",
+    "watch:esbuild": "node build/esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project build/tsconfig.json",
+    "package": "npm run check-types && npm run lint && node build/esbuild.js --production",
+    "compile-tests": "tsc -p build/tsconfig.json --outDir out",
+    "watch-tests": "tsc -p build/tsconfig.json -w --outDir out",
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
-    "check-types": "tsc --noEmit",
-    "lint": "eslint src",
+    "check-types": "tsc --noEmit --project build/tsconfig.json",
+    "lint": "eslint src --config build/eslint.config.mjs",
     "test": "vscode-test"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.1",
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.18.13",
-    "@types/vscode": "^1.105.0",
+    "@types/vscode": "^1.74.0",
     "@typescript-eslint/eslint-plugin": "^8.45.0",
     "@typescript-eslint/parser": "^8.45.0",
     "@vscode/test-cli": "^0.0.11",
@@ -82,10 +308,5 @@
     "eslint": "^9.36.0",
     "npm-run-all": "^4.1.5",
     "typescript": "^5.9.3"
-  },
-  "dependencies": {
-    "@serialport/bindings-interface": "^1.2.2",
-    "@serialport/parser-readline": "^13.0.0",
-    "serialport": "^13.0.0"
   }
 }

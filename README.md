@@ -1,38 +1,128 @@
-# VS Code Serial Monitor Extension with MCP Integration
+# VS Code Serial Monitor with GitHub Copilot Integration
 
-A VS Code extension that provides serial port monitoring capabilities with Model Context Protocol (MCP) tool integration, allowing AI agents like GitHub Copilot to programmatically interact with serial devices.
+A powerful VS Code extension that provides serial port monitoring with seamless GitHub Copilot integration using VS Code's modern Language Model Tools API.
 
-## Features
+## ✨ Features
 
-### 🖥️ Serial Monitor UI
-- **Real-time monitoring**: Live display of serial output in a dedicated webview panel
-- **Device management**: Connect/disconnect to serial ports with auto-detection for Raspberry Pi Pico devices
-- **Interactive communication**: Send commands to devices via input field
-- **Log management**: Clear/export functionality with syntax highlighting for errors and timestamps
-- **Multi-device support**: Monitor multiple serial ports simultaneously
+- **Real-time Serial Monitoring**: Connect to and monitor serial devices with a clean, responsive interface
+- **GitHub Copilot Integration**: Native Language Model Tools enable natural language device control
+- **Auto-detection**: Automatically finds Raspberry Pi Pico and other common devices
+- **Background Monitoring**: Continuous logging with pattern matching and alerts
+- **Session Management**: Automatic file management with size and count limits
+- **Advanced Watch Tasks**: Background monitoring with timeout and pattern detection
 
-### 🤖 MCP Tool Integration (PRIMARY FEATURE)
-The extension exposes the following tools for AI agent use:
+## 🚀 Quick Start
 
-#### `serial_monitor_start_async`
-Start asynchronous monitoring of a serial port for specific patterns
-- **Parameters**: `port`, `watch_for[]`, `timeout_ms`, `buffer_lines?`
-- **Returns**: `{ task_id: string }`
+1. **Install the extension** from the VS Code Marketplace
+2. **Connect your device** (e.g., Raspberry Pi Pico on COM9)
+3. **Open Serial Monitor**: `Ctrl+Shift+P` → "Open Serial Monitor"
+4. **Chat with Copilot**: Let GitHub Copilot handle device interaction naturally
 
-#### `serial_monitor_check`
-Check the status of a background watch task
-- **Parameters**: `task_id`
-- **Returns**: `{ status, output, matched_pattern?, elapsed_ms }`
+## 🤖 GitHub Copilot Integration
 
-#### `serial_monitor_send`
-Send data to a serial device
-- **Parameters**: `port`, `data`
-- **Returns**: `{ success: boolean }`
+This extension registers 8 tools with GitHub Copilot using VS Code's Language Model Tools API:
 
-#### `serial_monitor_cancel`
-Cancel/close a background watch task
-- **Parameters**: `task_id`
-- **Returns**: `{ success: boolean }`
+### 💡 Natural Language Device Control
+- **"Connect to my Pico and read sensor data"** → Auto-detects, connects, and captures output
+- **"Send 'LED_ON' to turn on the LED"** → Sends command to connected device  
+- **"Monitor for error messages for 5 minutes"** → Starts background pattern monitoring
+- **"What serial ports are available?"** → Lists all detected serial devices
+- **"Show my session history"** → Displays connection history and statistics
+
+### 🛠️ Available Copilot Tools
+
+| Tool | Description | AI Usage Example |
+|------|-------------|------------------|
+| `serial_monitor_connect` | Connect to serial port | *"Connect to COM9 at 115200 baud"* |
+| `serial_monitor_send` | Send data to device | *"Send 'reset' command to my device"* |
+| `serial_monitor_read` | Read device output | *"Capture output for 10 seconds"* |
+| `serial_monitor_list_ports` | List available ports | *"What devices are connected?"* |
+| `serial_monitor_session_info` | Get session details | *"Show my connection history"* |
+| `serial_monitor_start_watch` | Start background monitoring | *"Watch for 'ERROR' or 'FAIL' messages"* |
+| `serial_monitor_check_watch` | Check monitoring status | *"Has my monitoring found any issues?"* |
+| `serial_monitor_stop_watch` | Stop background monitoring | *"Cancel the background monitoring"* |
+
+See [GitHub Copilot Integration Guide](./docs/COPILOT_INTEGRATION.md) for detailed integration documentation.
+
+## ⚙️ Configuration
+
+Configure the extension through VS Code Settings → Extensions → Serial Monitor:
+
+- **Background Monitoring**: Enable automatic device monitoring
+- **Session Timeout**: Set maximum session duration (60-86400 seconds)
+- **File Rotation**: Configure session file limits (1-100 files, 1-100MB each)
+- **Default Settings**: Set preferred baud rates and connection parameters
+
+## 📁 Session Management
+
+- **Automatic File Rotation**: Sessions are saved with timestamps and rotated based on your limits
+- **Session Headers**: Each file includes device info, timestamps, and configuration
+- **Background Logging**: Continuous monitoring even when the panel is closed
+- **File Organization**: Clean, organized session files for easy analysis
+
+## 🛠️ Technical Details
+
+- **Cross-platform**: Works on Windows, macOS, and Linux
+- **Python Backend**: Reliable serial communication using pyserial
+- **TypeScript Frontend**: Modern VS Code extension with webview UI
+- **MCP Integration**: Standard Model Context Protocol for AI tool integration
+
+## 📋 Requirements
+
+- VS Code 1.74.0 or higher
+- Python 3.7+ (automatically detected)
+- Serial device (USB, Bluetooth, or network)
+
+## 🔧 Usage Examples
+
+### Manual Operation
+1. Open Command Palette (`Ctrl+Shift+P`)
+2. Run "Open Serial Monitor"
+3. Select your port or use auto-detection
+4. Start monitoring or send commands
+
+### AI-Assisted Operation
+```
+You: "Check what's happening on my Pico"
+Copilot: [Uses serial_monitor_connect with auto-detection]
+Copilot: [Uses serial_monitor_read for 3 seconds]
+Copilot: "Your Pico is running the temperature sensor script and reporting 23.5°C"
+
+You: "Send a reset command"
+Copilot: [Uses serial_monitor_send with "reset\n"]
+Copilot: "Reset command sent successfully"
+```
+
+## 🐛 Troubleshooting
+
+- **Port Access Issues**: Ensure no other applications are using the serial port
+- **Python Not Found**: Extension will guide you through Python installation
+- **Device Not Detected**: Check USB connections and device drivers
+- **Permission Errors**: Run VS Code as administrator if needed (Windows)
+
+## 📚 Resources
+
+- [MCP Tools Guide](./MCP-TOOLS-GUIDE.md) - Detailed AI tool documentation
+- [Session Management](./docs/sessions.md) - Session file format and management
+- [Troubleshooting Guide](./docs/troubleshooting.md) - Common issues and solutions
+
+## 🤝 Contributing
+
+Contributions welcome! Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
+
+## 📄 License
+
+MIT License - see [LICENSE](./LICENSE) for details.
+
+## 🔗 Links
+
+- [GitHub Repository](https://github.com/Htboss11/copilot-serial-tool)
+- [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=Htboss11.copilot-serial-tool)
+- [Issues & Support](https://github.com/Htboss11/copilot-serial-tool/issues)
+
+---
+
+*Made with ❤️ for the maker community. Happy monitoring!*
 
 ### ⚡ Background Task Manager
 - Run serial watches asynchronously without blocking the UI
@@ -127,25 +217,30 @@ The extension is built with:
 
 **Enjoy using the Serial Monitor extension with AI agent integration!**
 
+## 📚 Documentation
+
+- **[GitHub Copilot Integration Guide](./docs/COPILOT_INTEGRATION.md)** - Detailed guide for AI tool integration
+- **[MCP Tools Reference](./docs/MCP-TOOLS-GUIDE.md)** - Complete tool documentation for developers
+- **[Python Backend Guide](./docs/README-PYTHON.md)** - Technical details about the Python serial backend
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🔗 Links
+
+- **[GitHub Repository](https://github.com/Htboss11/copilot-serial-tool)**
+- **[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=Htboss11.serial-monitor)**
+- **[Issue Tracker](https://github.com/Htboss11/copilot-serial-tool/issues)**
+
 ---
 
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+**Enjoy seamless serial device interaction with AI assistance!** 🎉

@@ -20,6 +20,24 @@ export class MCPServer {
     constructor(serialManager: SerialManager, watchManager: WatchManager) {
         this.serialManager = serialManager;
         this.watchManager = watchManager;
+        this.announceCapabilities();
+    }
+
+    /**
+     * Announce MCP capabilities to AI agents like GitHub Copilot
+     * This helps AI agents discover and understand available serial tools
+     */
+    private announceCapabilities(): void {
+        // Register capability announcement with VS Code
+        console.log('Serial Monitor MCP Tools Available:');
+        console.log('- serial_monitor_start_async: Start background monitoring with pattern matching');
+        console.log('- serial_monitor_check: Check status of background watch tasks');
+        console.log('- serial_monitor_send: Send data to connected devices');
+        console.log('- serial_monitor_cancel: Cancel background watch tasks');
+        console.log('- serial_monitor_connect: Connect to serial devices');
+        console.log('- serial_monitor_read: Read data from devices');
+        console.log('- serial_monitor_list_ports: List available ports');
+        console.log('- serial_monitor_session_info: Get session information');
     }
 
     getTools(): MCPTool[] {
@@ -97,6 +115,66 @@ export class MCPServer {
                     },
                     required: ['task_id']
                 }
+            },
+            {
+                name: 'serial_monitor_connect',
+                description: 'Connect to a serial port',
+                inputSchema: {
+                    type: 'object',
+                    properties: {
+                        port: {
+                            type: 'string',
+                            description: 'Serial port path (e.g., "COM9") or "auto" to detect Pico'
+                        },
+                        baud_rate: {
+                            type: 'number',
+                            description: 'Baud rate (default: 115200)',
+                            default: 115200
+                        }
+                    },
+                    required: ['port']
+                }
+            },
+            {
+                name: 'serial_monitor_read',
+                description: 'Read data from serial port for specified duration',
+                inputSchema: {
+                    type: 'object',
+                    properties: {
+                        port: {
+                            type: 'string',
+                            description: 'Serial port path or "auto"'
+                        },
+                        duration: {
+                            type: 'number',
+                            description: 'Duration in seconds to read'
+                        },
+                        timeout: {
+                            type: 'number',
+                            description: 'Timeout in milliseconds (optional)',
+                            default: 1000
+                        }
+                    },
+                    required: ['port', 'duration']
+                }
+            },
+            {
+                name: 'serial_monitor_list_ports',
+                description: 'List all available serial ports',
+                inputSchema: {
+                    type: 'object',
+                    properties: {},
+                    required: []
+                }
+            },
+            {
+                name: 'serial_monitor_session_info',
+                description: 'Get information about current and historical sessions',
+                inputSchema: {
+                    type: 'object',
+                    properties: {},
+                    required: []
+                }
             }
         ];
     }
@@ -112,6 +190,14 @@ export class MCPServer {
                     return await this.handleSend(params);
                 case 'serial_monitor_cancel':
                     return await this.handleCancel(params);
+                case 'serial_monitor_connect':
+                    return await this.handleConnect(params);
+                case 'serial_monitor_read':
+                    return await this.handleRead(params);
+                case 'serial_monitor_list_ports':
+                    return await this.handleListPorts(params);
+                case 'serial_monitor_session_info':
+                    return await this.handleSessionInfo(params);
                 default:
                     return {
                         success: false,
@@ -249,6 +335,135 @@ export class MCPServer {
             data: { cancelled },
             error: cancelled ? undefined : `Task not found: ${task_id}`
         };
+    }
+
+    private async handleConnect(params: any): Promise<MCPToolResult> {
+        const { port, baud_rate = 115200 } = params;
+
+        if (!port) {
+            return {
+                success: false,
+                error: 'Missing required parameter: port'
+            };
+        }
+
+        try {
+            // Auto-detect if port is "auto"
+            let targetPort = port;
+            if (port === "auto") {
+                const detectedPort = await this.serialManager.detectPico();
+                if (!detectedPort) {
+                    return {
+                        success: false,
+                        error: 'No Raspberry Pi Pico device detected'
+                    };
+                }
+                targetPort = detectedPort;
+            }
+
+            const success = await this.serialManager.connect(targetPort, baud_rate);
+            
+            return {
+                success,
+                data: { port: targetPort, baud_rate, connected: success },
+                error: success ? undefined : `Failed to connect to ${targetPort}`
+            };
+        } catch (error) {
+            return {
+                success: false,
+                error: `Connection failed: ${error}`
+            };
+        }
+    }
+
+    private async handleRead(params: any): Promise<MCPToolResult> {
+        const { port, duration, timeout = 1000 } = params;
+
+        if (!port || !duration) {
+            return {
+                success: false,
+                error: 'Missing required parameters: port, duration'
+            };
+        }
+
+        try {
+            // Auto-detect if port is "auto"
+            let targetPort = port;
+            if (port === "auto") {
+                const detectedPort = await this.serialManager.detectPico();
+                if (!detectedPort) {
+                    return {
+                        success: false,
+                        error: 'No Raspberry Pi Pico device detected'
+                    };
+                }
+                targetPort = detectedPort;
+            }
+
+            // Ensure connection
+            if (!this.serialManager.isConnected(targetPort)) {
+                await this.serialManager.connect(targetPort);
+            }
+
+            const data = await this.serialManager.readForDuration(targetPort, duration * 1000);
+            
+            return {
+                success: true,
+                data: { 
+                    port: targetPort, 
+                    duration, 
+                    lines: data.split('\n').length,
+                    content: data.trim()
+                }
+            };
+        } catch (error) {
+            return {
+                success: false,
+                error: `Failed to read data: ${error}`
+            };
+        }
+    }
+
+    private async handleListPorts(params: any): Promise<MCPToolResult> {
+        try {
+            const ports = await this.serialManager.listPorts();
+            
+            return {
+                success: true,
+                data: { 
+                    ports: ports,
+                    count: ports.length
+                }
+            };
+        } catch (error) {
+            return {
+                success: false,
+                error: `Failed to list ports: ${error}`
+            };
+        }
+    }
+
+    private async handleSessionInfo(params: any): Promise<MCPToolResult> {
+        try {
+            const sessionInfo = this.serialManager.getSessionInfo();
+            
+            if (!sessionInfo) {
+                return {
+                    success: false,
+                    error: 'No workspace available for session information'
+                };
+            }
+            
+            return {
+                success: true,
+                data: sessionInfo
+            };
+        } catch (error) {
+            return {
+                success: false,
+                error: `Failed to get session info: ${error}`
+            };
+        }
     }
 
     // Method to expose tools for VS Code extension registration

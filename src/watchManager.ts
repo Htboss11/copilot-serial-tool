@@ -82,26 +82,11 @@ export class WatchTask {
             }, this.config.timeoutMs);
         }
 
-        // Set up data listener
-        this.serialManager.onData(this.config.port, (data: string) => {
-            if (this.status !== 'running') {
-                return;
-            }
-
-            // Add timestamp to data
-            const timestampedData = `[${new Date().toISOString()}] ${data}`;
-            this.buffer.add(timestampedData);
-
-            // Check for pattern matches
-            for (let i = 0; i < this.patterns.length; i++) {
-                if (this.patterns[i].test(data)) {
-                    this.matchedPattern = this.config.watchFor[i];
-                    this.status = 'complete';
-                    this.cleanup();
-                    break;
-                }
-            }
-        });
+        // Set up data listener - Note: Python backend handles data via output channels
+        // For pattern matching, we would need to implement a different approach
+        // TODO: Implement pattern matching by monitoring output channel or Python subprocess
+        console.log('Watch patterns:', this.config.watchFor);
+        console.log('Note: Pattern matching not yet implemented with Python backend');
     }
 
     stop(): void {
