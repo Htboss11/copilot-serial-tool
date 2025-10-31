@@ -1,6 +1,14 @@
-import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+
+// Make vscode optional for MCP standalone usage
+let vscode: any = null;
+try {
+    vscode = require('vscode');
+} catch (e) {
+    // Running in MCP standalone mode without VS Code
+    console.log('SessionManager: Running in MCP standalone mode');
+}
 
 export interface SessionFile {
     path: string;
@@ -16,6 +24,7 @@ export interface SessionConfig {
     maxSizeBytes: number;
     timeoutSeconds: number;
     directory: string;
+    flushIntervalSeconds: number;
 }
 
 export class SessionManager {
@@ -23,13 +32,16 @@ export class SessionManager {
     private currentSessionStream: fs.WriteStream | null = null;
     private sessionStartTime: Date | null = null;
     private sessionTimeoutHandle: NodeJS.Timeout | null = null;
+    private flushIntervalHandle: NodeJS.Timeout | null = null;
     private sessionDirectory: string;
+    private dataBuffer: string[] = [];
     private config: SessionConfig = {
         enabled: true,
         maxFiles: 10,
         maxSizeBytes: 10 * 1024 * 1024,
         timeoutSeconds: 3600,
-        directory: 'serial-sessions'
+        directory: 'serial-sessions',
+        flushIntervalSeconds: 2
     };
 
     constructor(private workspaceRoot: string) {
@@ -39,13 +51,14 @@ export class SessionManager {
     }
 
     private updateConfig(): void {
-        const config = vscode.workspace.getConfiguration('serialMonitor');
+        const config = vscode?.workspace?.getConfiguration('serialMonitor');
         this.config = {
-            enabled: config.get('backgroundMonitoring', true),
-            maxFiles: config.get('maxSessionFiles', 10),
-            maxSizeBytes: config.get('maxFileSize', 10) * 1024 * 1024, // Convert MB to bytes
-            timeoutSeconds: config.get('sessionTimeout', 3600),
-            directory: config.get('sessionDirectory', 'serial-sessions')
+            enabled: config?.get('backgroundMonitoring', true) ?? true,
+            maxFiles: config?.get('maxSessionFiles', 10) ?? 10,
+            maxSizeBytes: (config?.get('maxFileSize', 10) ?? 10) * 1024 * 1024, // Convert MB to bytes
+            timeoutSeconds: config?.get('sessionTimeout', 3600) ?? 3600,
+            directory: config?.get('sessionDirectory', 'serial-sessions') ?? 'serial-sessions',
+            flushIntervalSeconds: config.get('sessionFlushInterval', 2)
         };
     }
 
@@ -57,7 +70,7 @@ export class SessionManager {
             }
         } catch (error) {
             console.error('Failed to create session directory:', error);
-            vscode.window.showErrorMessage(`Failed to create session directory: ${error}`);
+            vscode?.window?.showErrorMessage(`Failed to create session directory: ${error}`);
         }
     }
 
@@ -93,14 +106,22 @@ export class SessionManager {
 `;
             this.currentSessionStream.write(header);
 
+            // Start periodic flush if interval > 0
+            if (this.config.flushIntervalSeconds > 0) {
+                this.flushIntervalHandle = setInterval(() => {
+                    this.flushBuffer();
+                }, this.config.flushIntervalSeconds * 1000);
+                console.log(`Started flush interval: ${this.config.flushIntervalSeconds}s`);
+            }
+
             // Set session timeout
             this.sessionTimeoutHandle = setTimeout(() => {
                 console.log(`Session timeout reached (${this.config.timeoutSeconds}s)`);
                 this.endSession();
-                vscode.window.showInformationMessage(
+                vscode?.window?.showInformationMessage(
                     `Serial session timeout reached (${this.config.timeoutSeconds/60} minutes). Session ended.`,
                     'View Sessions'
-                ).then(selection => {
+                ).then((selection: any) => {
                     if (selection === 'View Sessions') {
                         this.showSessionsFolder();
                     }
@@ -108,10 +129,10 @@ export class SessionManager {
             }, this.config.timeoutSeconds * 1000);
 
             console.log(`Started new session: ${sessionFileName}`);
-            vscode.window.showInformationMessage(
+            vscode?.window?.showInformationMessage(
                 `Background monitoring started for ${portPath}`, 
                 'View Sessions'
-            ).then(selection => {
+            ).then((selection: any) => {
                 if (selection === 'View Sessions') {
                     this.showSessionsFolder();
                 }
@@ -119,12 +140,21 @@ export class SessionManager {
 
         } catch (error) {
             console.error('Failed to start session:', error);
-            vscode.window.showErrorMessage(`Failed to start session: ${error}`);
+            vscode?.window?.showErrorMessage(`Failed to start session: ${error}`);
         }
     }
 
     public endSession(): void {
         try {
+            // Stop flush interval
+            if (this.flushIntervalHandle) {
+                clearInterval(this.flushIntervalHandle);
+                this.flushIntervalHandle = null;
+            }
+
+            // Flush any remaining buffered data
+            this.flushBuffer();
+
             if (this.sessionTimeoutHandle) {
                 clearTimeout(this.sessionTimeoutHandle);
                 this.sessionTimeoutHandle = null;
@@ -163,18 +193,41 @@ export class SessionManager {
         }
 
         try {
+            // Add data to buffer
+            const logLine = `[${timestamp}] ${data}\n`;
+            
+            if (this.config.flushIntervalSeconds === 0) {
+                // Flush immediately (interval = 0 means write at end of session only)
+                this.dataBuffer.push(logLine);
+            } else {
+                // Add to buffer for periodic flushing
+                this.dataBuffer.push(logLine);
+            }
+
             // Check file size and rotate if necessary
             if (this.currentSessionFile && this.getFileSize(this.currentSessionFile) > this.config.maxSizeBytes) {
                 console.log('File size limit reached, rotating session file');
+                this.flushBuffer(); // Flush before rotating
                 this.startSession(portPath); // This will rotate and create new file
             }
 
-            // Log the data
-            const logLine = `[${timestamp}] ${data}\n`;
-            this.currentSessionStream.write(logLine);
-
         } catch (error) {
             console.error('Error logging data:', error);
+        }
+    }
+
+    private flushBuffer(): void {
+        if (!this.currentSessionStream || this.dataBuffer.length === 0) {
+            return;
+        }
+
+        try {
+            const bufferedData = this.dataBuffer.join('');
+            this.currentSessionStream.write(bufferedData);
+            this.dataBuffer = [];
+            console.log(`Flushed ${bufferedData.length} bytes to session file`);
+        } catch (error) {
+            console.error('Error flushing buffer:', error);
         }
     }
 
@@ -288,11 +341,11 @@ export class SessionManager {
 
     public async showSessionsFolder(): Promise<void> {
         try {
-            const uri = vscode.Uri.file(this.sessionDirectory);
-            await vscode.commands.executeCommand('revealFileInOS', uri);
+            const uri = vscode?.Uri?.file(this.sessionDirectory);
+            await vscode?.commands?.executeCommand('revealFileInOS', uri);
         } catch (error) {
             console.error('Failed to show sessions folder:', error);
-            vscode.window.showErrorMessage(`Failed to open sessions folder: ${error}`);
+            vscode?.window?.showErrorMessage(`Failed to open sessions folder: ${error}`);
         }
     }
 
@@ -314,12 +367,12 @@ export class SessionManager {
         // If monitoring was disabled, end current session
         if (oldConfig.enabled && !this.config.enabled) {
             this.endSession();
-            vscode.window.showInformationMessage('Background monitoring disabled');
+            vscode?.window?.showInformationMessage('Background monitoring disabled');
         }
 
         // If monitoring was enabled, show info
         if (!oldConfig.enabled && this.config.enabled) {
-            vscode.window.showInformationMessage('Background monitoring enabled');
+            vscode?.window?.showInformationMessage('Background monitoring enabled');
         }
     }
 }

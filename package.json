@@ -2,7 +2,7 @@
   "name": "serial-monitor",
   "displayName": "Serial Monitor with Python Backend",
   "description": "VS Code Serial Monitor Extension with MCP integration for AI agents, featuring background monitoring, session logging, and Python-based serial communication",
-  "version": "1.0.0",
+  "version": "1.3.0",
   "publisher": "Htboss11",
   "license": "MIT",
   "repository": {
@@ -115,6 +115,26 @@
         "tags": ["serial", "hardware", "read", "monitor"]
       },
       {
+        "name": "serial_monitor_get_buffer",
+        "displayName": "Get Buffered Data",
+        "modelDescription": "Retrieve buffered serial data with timestamps and connection state markers. The buffer automatically stores the last 10 minutes (600 seconds) of data including connection state changes (CONNECTION ESTABLISHED, CONNECTION LOST, CONNECTION RESTORED, DISCONNECTED BY USER). Use when user wants to review historical data, check connection status, or analyze data received during disconnections. Optionally filter to last N seconds.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "port": {
+              "type": "string",
+              "description": "Serial port path"
+            },
+            "seconds": {
+              "type": "number",
+              "description": "Optional: Return only data from the last N seconds. Omit to get all buffered data (up to 10 minutes)."
+            }
+          },
+          "required": ["port"]
+        },
+        "tags": ["serial", "hardware", "buffer", "history", "reconnection"]
+      },
+      {
         "name": "serial_monitor_list_ports",
         "displayName": "List Serial Ports",
         "modelDescription": "List all available serial ports. Use when user wants to discover devices, see available connections, or troubleshoot connectivity issues.",
@@ -201,6 +221,12 @@
         "tags": ["serial", "monitor", "stop", "cancel"]
       }
     ],
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "serial-monitor.mcp-provider",
+        "label": "Serial Monitor MCP Server"
+      }
+    ],
     "commands": [
       {
         "command": "serial-monitor.open",
@@ -273,21 +299,99 @@
           "default": "serial-sessions",
           "description": "Directory name for storing session files (relative to workspace)"
         },
+        "serialMonitor.sessionFlushInterval": {
+          "type": "number",
+          "default": 2,
+          "minimum": 0,
+          "maximum": 60,
+          "description": "How often to write buffered data to disk in seconds (0 = only at end of session, 1-60 = periodic flush)"
+        },
         "serialMonitor.watchTimeout": {
           "type": "number",
           "default": 60000,
           "description": "Default timeout for watch operations (ms)"
         }
       }
+    },
+    "views": {
+      "explorer": [
+        {
+          "id": "serialMonitor",
+          "name": "Serial Monitor",
+          "when": "true",
+          "type": "webview",
+          "icon": "$(device-mobile)"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "serialMonitor",
+        "contents": "Welcome to Serial Monitor!\n[Open Serial Monitor](command:serial-monitor.open)\n[Check Dependencies](command:serial-monitor.checkDependencies)"
+      }
+    ],
+    "menus": {
+      "menubar/tools": [
+        {
+          "command": "serial-monitor.open",
+          "title": "Serial Monitor",
+          "group": "1_tools"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "serial-monitor.open",
+          "when": "true"
+        },
+        {
+          "command": "serial-monitor.checkDependencies",
+          "when": "true"
+        },
+        {
+          "command": "serial-monitor.showSessions",
+          "when": "true"
+        },
+        {
+          "command": "serial-monitor.sessionInfo",
+          "when": "true"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "serial-monitor.open",
+          "when": "true",
+          "group": "z_commands@1"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "serial-monitor.open",
+          "when": "true",
+          "group": "z_commands@1"
+        },
+        {
+          "command": "serial-monitor.showSessions",
+          "when": "true",
+          "group": "z_commands@2"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "serial-monitor.open",
+          "when": "view == explorer",
+          "group": "navigation@10"
+        }
+      ]
     }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
     "compile": "npm run check-types && npm run lint && node build/esbuild.js",
+    "compile-mcp": "tsc src/mcp-server-pure.ts --outDir dist --module commonjs --target es2020 --moduleResolution node --esModuleInterop",
     "watch": "npm-run-all -p watch:*",
     "watch:esbuild": "node build/esbuild.js --watch",
     "watch:tsc": "tsc --noEmit --watch --project build/tsconfig.json",
-    "package": "npm run check-types && npm run lint && node build/esbuild.js --production",
+    "package": "npm run check-types && npm run lint && node build/esbuild.js --production && npm run compile-mcp",
     "compile-tests": "tsc -p build/tsconfig.json --outDir out",
     "watch-tests": "tsc -p build/tsconfig.json -w --outDir out",
     "pretest": "npm run compile-tests && npm run compile && npm run lint",

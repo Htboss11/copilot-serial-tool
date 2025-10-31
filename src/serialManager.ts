@@ -1,7 +1,15 @@
-import * as vscode from 'vscode';
 import * as path from 'path';
 import { spawn, ChildProcess } from 'child_process';
 import { SessionManager } from './sessionManager';
+
+// Make vscode optional for MCP standalone usage
+let vscode: any = null;
+try {
+    vscode = require('vscode');
+} catch (e) {
+    // Running in MCP standalone mode without VS Code
+    console.log('Running in MCP standalone mode (no VS Code API available)');
+}
 
 export interface SerialPortInfo {
     path: string;
@@ -12,14 +20,98 @@ export interface SerialPortInfo {
     serialNumber?: string;
 }
 
+export interface BufferEntry {
+    timestamp: string;
+    data: string;
+}
+
+export interface BufferResult {
+    success: boolean;
+    port?: string;
+    buffer_seconds?: number;
+    total_lines?: number;
+    data?: BufferEntry[];
+    error?: string;
+}
+
+/**
+ * Circular buffer that stores data with timestamps
+ * Automatically expires entries older than maxSeconds
+ */
+class CircularBuffer {
+    private buffer: BufferEntry[] = [];
+    private readonly maxSeconds: number;
+
+    constructor(maxSeconds: number = 600) {
+        this.maxSeconds = maxSeconds;
+    }
+
+    /**
+     * Add a new entry to the buffer
+     */
+    add(timestamp: string, data: string): void {
+        this.buffer.push({ timestamp, data });
+        this.cleanup();
+    }
+
+    /**
+     * Get all buffered entries (after cleanup)
+     */
+    getAll(): BufferEntry[] {
+        this.cleanup();
+        return [...this.buffer];
+    }
+
+    /**
+     * Get entries from the last N seconds
+     */
+    getRecent(seconds: number): BufferEntry[] {
+        this.cleanup();
+        const cutoffTime = Date.now() - (seconds * 1000);
+        return this.buffer.filter(entry => {
+            const entryTime = new Date(entry.timestamp).getTime();
+            return entryTime >= cutoffTime;
+        });
+    }
+
+    /**
+     * Clear all entries
+     */
+    clear(): void {
+        this.buffer = [];
+    }
+
+    /**
+     * Remove entries older than maxSeconds
+     */
+    private cleanup(): void {
+        const cutoffTime = Date.now() - (this.maxSeconds * 1000);
+        this.buffer = this.buffer.filter(entry => {
+            const entryTime = new Date(entry.timestamp).getTime();
+            return entryTime >= cutoffTime;
+        });
+    }
+
+    /**
+     * Get current buffer size
+     */
+    size(): number {
+        this.cleanup();
+        return this.buffer.length;
+    }
+}
+
 export class SerialManager {
-    private connections: Map<string, ChildProcess> = new Map();
-    private outputChannels: Map<string, vscode.OutputChannel> = new Map();
+    private activeConnections: Map<string, ChildProcess> = new Map();
+    private outputChannels: Map<string, any> = new Map(); // vscode.OutputChannel or null in MCP mode
+    private buffers: Map<string, CircularBuffer> = new Map();
     private pythonScriptPath: string;
     private sessionManager: SessionManager | null = null;
 
     constructor(extensionPath: string, workspaceRoot?: string) {
         this.pythonScriptPath = path.join(extensionPath, 'python', 'serial_monitor.py');
+        // Debug flag: allow enabling Python-side debug logging via env var
+        (this as any).debug = process.env.SERIAL_MONITOR_DEBUG === '1';
         
         // Initialize session manager if workspace is available
         if (workspaceRoot) {
@@ -86,14 +178,25 @@ export class SerialManager {
 
     public async connect(portPath: string, baudRate: number = 115200): Promise<boolean> {
         try {
-            if (this.connections.has(portPath)) {
+            if (this.activeConnections.has(portPath)) {
                 console.log(`Port ${portPath} is already connected`);
                 return true;
             }
 
-            // Create output channel for this port
-            const outputChannel = vscode.window.createOutputChannel(`Serial Monitor - ${portPath}`);
-            this.outputChannels.set(portPath, outputChannel);
+            // Create output channel for this port (if running in VS Code)
+            let outputChannel: any = null;
+            if (vscode) {
+                outputChannel = vscode.window.createOutputChannel(`Serial Monitor - ${portPath}`);
+                this.outputChannels.set(portPath, outputChannel);
+            }
+
+            // Create circular buffer for this port (600 seconds = 10 minutes)
+            const buffer = new CircularBuffer(600);
+            this.buffers.set(portPath, buffer);
+
+            // Add connection marker to buffer
+            const connectTimestamp = new Date().toISOString();
+            buffer.add(connectTimestamp, '=== CONNECTION ESTABLISHED ===');
 
             // Start Python process for continuous monitoring
             const python = spawn('python', [
@@ -102,7 +205,12 @@ export class SerialManager {
                 '--port', portPath, 
                 '--baud', baudRate.toString()
             ], {
-                stdio: ['pipe', 'pipe', 'pipe']
+                stdio: ['pipe', 'pipe', 'pipe'],
+                // Force-enable SERIAL_MONITOR_DEBUG for diagnostic runs; set to '0' in production if needed
+                env: Object.assign({}, process.env, { 
+                    SERIAL_MONITOR_DEBUG: '1',
+                    SERIAL_MONITOR_DEBUG_PATH: path.join(path.dirname(this.pythonScriptPath), 'serial_debug.log')
+                })
             });
 
             // Handle data from Python script
@@ -114,26 +222,44 @@ export class SerialManager {
                             const parsed = JSON.parse(line);
                             if (parsed.type === 'data') {
                                 const message = `[${parsed.timestamp}] ${parsed.data}`;
-                                outputChannel.appendLine(message);
+                                if (outputChannel) {
+                                    outputChannel.appendLine(message);
+                                } else {
+                                    console.log(message);
+                                }
                                 console.log(`Data from ${portPath}:`, parsed.data);
+                                
+                                // Add to buffer
+                                buffer.add(parsed.timestamp, parsed.data);
                                 
                                 // Log to session file
                                 if (this.sessionManager) {
                                     this.sessionManager.logData(portPath, parsed.timestamp, parsed.data);
                                 }
                             } else if (parsed.type === 'error') {
-                                outputChannel.appendLine(`[ERROR] ${parsed.error}`);
+                                if (outputChannel) {
+                                    outputChannel.appendLine(`[ERROR] ${parsed.error}`);
+                                } else {
+                                    console.error(`[ERROR] ${parsed.error}`);
+                                }
                                 console.error(`Serial error on ${portPath}:`, parsed.error);
+                                
+                                // Add error to buffer
+                                const errorTimestamp = new Date().toISOString();
+                                buffer.add(errorTimestamp, `ERROR: ${parsed.error}`);
                                 
                                 // Log errors to session file too
                                 if (this.sessionManager) {
-                                    this.sessionManager.logData(portPath, new Date().toISOString(), `ERROR: ${parsed.error}`);
+                                    this.sessionManager.logData(portPath, errorTimestamp, `ERROR: ${parsed.error}`);
                                 }
                             }
                         } catch (parseError) {
                             // Handle non-JSON output
                             const timestamp = new Date().toISOString();
                             outputChannel.appendLine(`[${timestamp}] ${line.trim()}`);
+                            
+                            // Add raw output to buffer
+                            buffer.add(timestamp, `RAW: ${line.trim()}`);
                             
                             // Log raw output to session file
                             if (this.sessionManager) {
@@ -155,8 +281,22 @@ export class SerialManager {
             python.on('close', (code) => {
                 console.log(`Python serial process for ${portPath} exited with code ${code}`);
                 outputChannel.appendLine(`[INFO] Connection closed (exit code: ${code})`);
-                this.connections.delete(portPath);
+                
+                // Add disconnection marker to buffer
+                if (this.buffers.has(portPath)) {
+                    const disconnectTimestamp = new Date().toISOString();
+                    const marker = code === 0 ? '=== DISCONNECTED BY USER ===' : '=== CONNECTION LOST ===';
+                    this.buffers.get(portPath)!.add(disconnectTimestamp, marker);
+                    
+                    // Log to session file
+                    if (this.sessionManager) {
+                        this.sessionManager.logData(portPath, disconnectTimestamp, marker);
+                    }
+                }
+                
+                this.activeConnections.delete(portPath);
                 this.outputChannels.delete(portPath);
+                // Keep buffer for potential reconnection or later retrieval
                 
                 // End session when connection closes
                 if (this.sessionManager) {
@@ -167,7 +307,18 @@ export class SerialManager {
             python.on('error', (error) => {
                 console.error(`Python process error for ${portPath}:`, error);
                 outputChannel.appendLine(`[ERROR] Process error: ${error.message}`);
-                vscode.window.showErrorMessage(`Serial process error: ${error.message}`);
+                vscode?.window?.showErrorMessage(`Serial process error: ${error.message}`);
+                
+                // Add error marker to buffer
+                if (this.buffers.has(portPath)) {
+                    const errorTimestamp = new Date().toISOString();
+                    this.buffers.get(portPath)!.add(errorTimestamp, `=== ERROR: ${error.message} ===`);
+                    
+                    // Log to session file
+                    if (this.sessionManager) {
+                        this.sessionManager.logData(portPath, errorTimestamp, `ERROR: ${error.message}`);
+                    }
+                }
                 
                 // End session on error
                 if (this.sessionManager) {
@@ -175,12 +326,12 @@ export class SerialManager {
                 }
             });
 
-            this.connections.set(portPath, python);
+            this.activeConnections.set(portPath, python);
 
             // Wait a moment to see if connection succeeds
             await new Promise(resolve => setTimeout(resolve, 1000));
 
-            if (this.connections.has(portPath)) {
+            if (this.activeConnections.has(portPath)) {
                 console.log(`Connected to ${portPath} at ${baudRate} baud`);
                 outputChannel.show();
                 
@@ -196,14 +347,14 @@ export class SerialManager {
 
         } catch (error) {
             console.error(`Failed to connect to ${portPath}:`, error);
-            vscode.window.showErrorMessage(`Failed to connect to ${portPath}: ${error}`);
+            vscode?.window?.showErrorMessage(`Failed to connect to ${portPath}: ${error}`);
             return false;
         }
     }
 
     public async disconnect(portPath: string): Promise<boolean> {
         try {
-            const process = this.connections.get(portPath);
+            const process = this.activeConnections.get(portPath);
             if (!process) {
                 console.log(`Port ${portPath} is not connected`);
                 return true;
@@ -218,7 +369,7 @@ export class SerialManager {
                 outputChannel.dispose();
             }
 
-            this.connections.delete(portPath);
+            this.activeConnections.delete(portPath);
             this.outputChannels.delete(portPath);
 
             console.log(`Disconnected from ${portPath}`);
@@ -226,7 +377,7 @@ export class SerialManager {
 
         } catch (error) {
             console.error(`Failed to disconnect from ${portPath}:`, error);
-            vscode.window.showErrorMessage(`Failed to disconnect from ${portPath}: ${error}`);
+            vscode?.window?.showErrorMessage(`Failed to disconnect from ${portPath}: ${error}`);
             return false;
         }
     }
@@ -256,25 +407,112 @@ export class SerialManager {
 
         } catch (error) {
             console.error(`Failed to send data to ${portPath}:`, error);
-            vscode.window.showErrorMessage(`Failed to send data: ${error}`);
+            vscode?.window?.showErrorMessage(`Failed to send data: ${error}`);
             return false;
         }
     }
 
     public isConnected(portPath: string): boolean {
-        const process = this.connections.get(portPath);
+        const process = this.activeConnections.get(portPath);
         return !!(process && !process.killed);
     }
 
     public getConnectedPorts(): string[] {
-        return Array.from(this.connections.keys()).filter(portPath => 
+        return Array.from(this.activeConnections.keys()).filter(portPath => 
             this.isConnected(portPath)
         );
     }
 
+    /**
+     * Get buffered data for a port
+     * @param portPath Serial port path
+     * @param seconds Optional: get only last N seconds of data
+     * @returns Buffer result with data entries
+     */
+    public async getBuffer(portPath: string, seconds?: number): Promise<BufferResult> {
+        try {
+            const buffer = this.buffers.get(portPath);
+            
+            if (!buffer) {
+                return {
+                    success: false,
+                    error: `No buffer found for port ${portPath}. Connect first.`
+                };
+            }
+
+            const data = seconds !== undefined ? buffer.getRecent(seconds) : buffer.getAll();
+
+            return {
+                success: true,
+                port: portPath,
+                buffer_seconds: 600,
+                total_lines: data.length,
+                data
+            };
+
+        } catch (error) {
+            return {
+                success: false,
+                error: `Failed to get buffer: ${error}`
+            };
+        }
+    }
+
+    /**
+     * Read data from port for a specified duration
+     * Returns buffered data including historical data
+     * @param portPath Serial port path
+     * @param duration Duration in seconds to wait for data
+     * @returns Buffer result with all accumulated data
+     */
+    public async read(portPath: string, duration: number = 5): Promise<BufferResult> {
+        try {
+            if (!this.isConnected(portPath)) {
+                return {
+                    success: false,
+                    error: `Port ${portPath} not connected. Use connect first.`
+                };
+            }
+
+            const buffer = this.buffers.get(portPath);
+            if (!buffer) {
+                return {
+                    success: false,
+                    error: `No buffer for port ${portPath}`
+                };
+            }
+
+            // Get initial buffer size
+            const initialSize = buffer.size();
+
+            // Wait for specified duration
+            await new Promise(resolve => setTimeout(resolve, duration * 1000));
+
+            // Get all data (including historical)
+            const allData = buffer.getAll();
+            const newLines = allData.length - initialSize;
+
+            console.log(`Read from ${portPath}: ${allData.length} total lines, ${newLines} new lines during ${duration}s`);
+
+            return {
+                success: true,
+                port: portPath,
+                buffer_seconds: 600,
+                total_lines: allData.length,
+                data: allData
+            };
+
+        } catch (error) {
+            return {
+                success: false,
+                error: `Failed to read from ${portPath}: ${error}`
+            };
+        }
+    }
+
     public dispose(): void {
         // Kill all Python processes
-        for (const [portPath, process] of this.connections) {
+        for (const [portPath, process] of this.activeConnections) {
             try {
                 process.kill('SIGTERM');
             } catch (error) {
@@ -296,7 +534,7 @@ export class SerialManager {
             this.sessionManager.dispose();
         }
 
-        this.connections.clear();
+        this.activeConnections.clear();
         this.outputChannels.clear();
     }
 
@@ -308,7 +546,7 @@ export class SerialManager {
         if (this.sessionManager) {
             await this.sessionManager.showSessionsFolder();
         } else {
-            vscode.window.showWarningMessage('Session manager not available - no workspace open');
+            vscode?.window?.showWarningMessage('Session manager not available - no workspace open');
         }
     }
 
@@ -320,7 +558,7 @@ export class SerialManager {
 
     public async readForDuration(portPath: string, durationMs: number): Promise<string> {
         return new Promise((resolve, reject) => {
-            const connection = this.connections.get(portPath);
+            const connection = this.activeConnections.get(portPath);
             if (!connection) {
                 reject(new Error(`No connection found for port ${portPath}`));
                 return;
@@ -347,3 +585,5 @@ export class SerialManager {
         });
     }
 }
+
+

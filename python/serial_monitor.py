@@ -12,12 +12,39 @@ import json
 import sys
 import argparse
 from datetime import datetime
+import os
 
 class SerialMonitor:
     def __init__(self):
         self.connections = {}
         self.running = {}
         self.output_callbacks = {}
+        
+        # TEMP DEBUG: Always write a marker file to verify __init__ runs
+        try:
+            marker_path = os.path.join(os.path.dirname(__file__), '_init_marker.txt')
+            with open(marker_path, 'w') as f:
+                f.write(f"Init ran at {datetime.now().isoformat()}\n")
+                f.write(f"DEBUG env: {os.environ.get('SERIAL_MONITOR_DEBUG')}\n")
+                f.write(f"DEBUG_PATH env: {os.environ.get('SERIAL_MONITOR_DEBUG_PATH')}\n")
+        except Exception as e:
+            pass  # Silent fail
+        
+        # Debugging: if SERIAL_MONITOR_DEBUG=1 set, log raw reads to a debug file
+        self.debug = os.environ.get('SERIAL_MONITOR_DEBUG') == '1'
+        if self.debug:
+            try:
+                # Use SERIAL_MONITOR_DEBUG_PATH if set, else default to script dir
+                debug_path = os.environ.get('SERIAL_MONITOR_DEBUG_PATH')
+                if debug_path:
+                    self.debug_file = debug_path
+                else:
+                    self.debug_file = os.path.join(os.path.dirname(__file__), 'serial_debug.log')
+                # create/clear existing file
+                with open(self.debug_file, 'w') as f:
+                    f.write(f"Serial debug started: {datetime.now().isoformat()}\n")
+            except Exception:
+                self.debug = False
         
     def list_ports(self):
         """List all available serial ports"""
@@ -78,6 +105,45 @@ class SerialMonitor:
         except Exception as e:
             return {'success': False, 'error': str(e)}
     
+    def read(self, port_path, duration=5):
+        """Read data from a serial port for a specified duration"""
+        try:
+            if port_path not in self.connections:
+                return {'success': False, 'error': f'Port {port_path} not connected. Use connect command first.'}
+            
+            ser = self.connections[port_path]
+            ser.timeout = 0.1  # Set read timeout to 100ms
+            start_time = time.time()
+            lines = []
+            
+            while (time.time() - start_time) < duration:
+                try:
+                    # Try to read a line - will block for up to timeout duration
+                    line = ser.readline()
+                    if line:
+                        data = line.decode('utf-8', errors='ignore').strip()
+                        if data:
+                            lines.append({
+                                'timestamp': datetime.now().isoformat(),
+                                'data': data
+                            })
+                except serial.SerialException:
+                    break
+                except Exception:
+                    # Ignore other read errors and continue
+                    continue
+            
+            return {
+                'success': True,
+                'port': port_path,
+                'duration': duration,
+                'lines_read': len(lines),
+                'data': lines
+            }
+            
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+    
     def disconnect(self, port_path):
         """Disconnect from a serial port"""
         try:
@@ -117,11 +183,21 @@ class SerialMonitor:
     def _read_thread(self, port_path):
         """Background thread to read from serial port"""
         ser = self.connections[port_path]
+        ser.timeout = 0.1  # Set read timeout to 100ms
         
         while self.running.get(port_path, False):
             try:
-                if ser.in_waiting > 0:
-                    data = ser.readline().decode('utf-8', errors='ignore').strip()
+                # Try to read a line - will block for up to timeout duration
+                line = ser.readline()
+                # Debug: always log raw read (even empty) when enabled
+                if getattr(self, 'debug', False):
+                    try:
+                        with open(self.debug_file, 'a') as df:
+                            df.write(f"{datetime.now().isoformat()} | raw_len={len(line)} | raw={repr(line)}\n")
+                    except Exception:
+                        pass
+                if line:
+                    data = line.decode('utf-8', errors='ignore').strip()
                     if data:
                         timestamp = datetime.now().isoformat()
                         output = {
@@ -131,18 +207,25 @@ class SerialMonitor:
                             'data': data
                         }
                         print(json.dumps(output), flush=True)
-                
-                time.sleep(0.01)  # Small delay to prevent CPU spinning
-                
-            except Exception as e:
+                        
+            except serial.SerialException as e:
                 error_output = {
                     'type': 'error',
                     'port': port_path,
                     'timestamp': datetime.now().isoformat(),
-                    'error': str(e)
+                    'error': f'Serial exception: {str(e)}'
                 }
                 print(json.dumps(error_output), flush=True)
                 break
+            except Exception as e:
+                # Log other exceptions but continue
+                error_output = {
+                    'type': 'error',
+                    'port': port_path,
+                    'timestamp': datetime.now().isoformat(),
+                    'error': f'Read error: {str(e)}'
+                }
+                print(json.dumps(error_output), flush=True)
     
     def get_status(self, port_path=None):
         """Get connection status"""
@@ -157,10 +240,11 @@ class SerialMonitor:
 
 def main():
     parser = argparse.ArgumentParser(description='Python Serial Monitor')
-    parser.add_argument('command', choices=['list', 'detect-pico', 'connect', 'disconnect', 'send', 'status'])
+    parser.add_argument('command', choices=['list', 'detect-pico', 'connect', 'disconnect', 'send', 'read', 'status'])
     parser.add_argument('--port', help='Serial port path')
     parser.add_argument('--baud', type=int, default=115200, help='Baud rate')
     parser.add_argument('--data', help='Data to send')
+    parser.add_argument('--duration', type=float, default=5.0, help='Duration in seconds for read command')
     
     args = parser.parse_args()
     
@@ -177,13 +261,7 @@ def main():
                 result = {'success': False, 'error': 'Port required for connect command'}
             else:
                 result = monitor.connect(args.port, args.baud)
-                if result['success']:
-                    # Keep running to read data
-                    try:
-                        while True:
-                            time.sleep(1)
-                    except KeyboardInterrupt:
-                        monitor.disconnect(args.port)
+                # Don't keep running - just connect and return
         elif args.command == 'disconnect':
             if not args.port:
                 result = {'success': False, 'error': 'Port required for disconnect command'}
@@ -194,6 +272,11 @@ def main():
                 result = {'success': False, 'error': 'Port and data required for send command'}
             else:
                 result = monitor.send(args.port, args.data)
+        elif args.command == 'read':
+            if not args.port:
+                result = {'success': False, 'error': 'Port required for read command'}
+            else:
+                result = monitor.read(args.port, args.duration)
         elif args.command == 'status':
             result = monitor.get_status(args.port)
         else:

@@ -1,0 +1,48 @@
+{
+  "name": "serial-monitor",
+  "version": "1.0.0",
+  "description": "MCP Server for VS Code Serial Monitor - provides AI agents with serial communication tools",
+  "type": "stdio",
+  "command": "node",
+  "args": ["dist/mcp-server-pure.js"],
+  "env": {},
+  "capabilities": {
+    "tools": true,
+    "resources": false,
+    "prompts": false
+  },
+  "tools": [
+    {
+      "name": "serial_monitor_list_ports",
+      "description": "List all available serial ports with device information"
+    },
+    {
+      "name": "serial_monitor_connect", 
+      "description": "Connect to a serial device on specified port"
+    },
+    {
+      "name": "serial_monitor_send",
+      "description": "Send data to connected serial device"
+    },
+    {
+      "name": "serial_monitor_read",
+      "description": "Read data from connected serial device"
+    },
+    {
+      "name": "serial_monitor_start_async",
+      "description": "Start background monitoring with pattern matching and timeout"
+    },
+    {
+      "name": "serial_monitor_check",
+      "description": "Check status of background watch tasks"
+    },
+    {
+      "name": "serial_monitor_cancel",
+      "description": "Cancel background watch tasks"
+    },
+    {
+      "name": "serial_monitor_session_info",
+      "description": "Get current session information and statistics"
+    }
+  ]
+}

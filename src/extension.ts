@@ -4,6 +4,8 @@ import { WatchManager } from './watchManager';
 import { MCPServer } from './mcpServer';
 import { SerialPanel } from './webview/SerialPanel';
 import { DependencyManager } from './dependencyManager';
+import { MCPAutoRegister } from './mcpAutoRegister';
+import { SerialMonitorMcpProvider } from './mcpServerProvider';
 
 let serialManager: SerialManager;
 let watchManager: WatchManager;
@@ -11,6 +13,19 @@ let mcpServer: MCPServer;
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('🔌 Serial Monitor extension is now active!');
+
+    // Register MCP Server Provider (the proper way for VS Code MCP integration)
+    try {
+        const mcpProvider = new SerialMonitorMcpProvider(context.extensionPath);
+        const mcpDisposable = vscode.lm.registerMcpServerDefinitionProvider(
+            'serial-monitor.mcp-provider',
+            mcpProvider
+        );
+        context.subscriptions.push(mcpDisposable);
+        console.log('✅ MCP Server Provider registered successfully');
+    } catch (error) {
+        console.error('❌ Failed to register MCP Server Provider:', error);
+    }
 
     // Check dependencies first
     checkDependenciesAndInitialize(context);
@@ -306,6 +321,11 @@ ${info.sessionFiles.map((f: any) => `
         });
 
         console.log('✅ Serial Monitor extension activated with MCP integration');
+        
+        // Automatically register MCP server in settings
+        console.log('🔌 Auto-registering MCP server...');
+        const mcpAutoRegister = new MCPAutoRegister(context.extensionPath);
+        await mcpAutoRegister.autoRegister();
         
     } catch (error) {
         console.error('❌ Extension activation failed:', error);
