@@ -1,53 +1,124 @@
-# Unified Architecture Design - Serial Monitor Extension
+# Daemon-Based Architecture - Serial Monitor Extension v2.0
 
-## Current State Analysis
+## Overview
 
-### Component Inventory
+The Serial Monitor extension now uses a **persistent Python daemon** architecture for robust, continuous serial monitoring with SQLite data storage and MCP integration.
 
-#### 1. **Extension Entry Point** (`src/extension.ts`)
-- **Type**: VS Code Extension Host
-- **Inputs**: VS Code activation events, user commands
-- **Outputs**: Command registrations, MCP server registration
-- **Keep/Modify**: KEEP - minimal changes needed
+## Architecture Diagram
 
-#### 2. **Serial Manager** (`src/serialManager.ts`)
-- **Type**: Business Logic Layer
-- **Current Inputs**: 
-  - Python script path
-  - Workspace root
-  - Commands from UI
-- **Current Outputs**:
-  - Spawns Python processes
-  - Manages OutputChannels
-  - Interfaces with SessionManager
-- **Status**: MODIFY - Core of new architecture
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    VS Code Extension                         │
+│  - Extension Host (TypeScript)                               │
+│  - MCP Server Provider                                       │
+└───────────────────────┬─────────────────────────────────────┘
+                        │ stdio
+                        ▼
+┌─────────────────────────────────────────────────────────────┐
+│              MCP Server (Python)                             │
+│  - daemon/mcp_server.py                                      │
+│  - JSON-RPC Protocol Handler                                 │
+│  - 8 MCP Tools Exposed                                       │
+└───────────────────────┬─────────────────────────────────────┘
+                        │ Python API
+                        ▼
+┌─────────────────────────────────────────────────────────────┐
+│           Daemon Control Tools (Python)                      │
+│  - daemon/mcp_daemon_tools.py                                │
+│  - Start/Stop/Status/Connect/Disconnect                      │
+│  - Query/Recent/Tail Data                                    │
+└───────────────────────┬─────────────────────────────────────┘
+                        │ JSON Command Files
+                        ▼
+┌─────────────────────────────────────────────────────────────┐
+│         Serial Daemon (Background Process)                   │
+│  - daemon/serial_daemon.py                                   │
+│  - Singleton (file lock protected)                           │
+│  - Polls for commands every 100ms                            │
+│  - Runtime connect/disconnect support                        │
+└───────────────────────┬─────────────────────────────────────┘
+                        │
+        ┌───────────────┴────────────────┐
+        ▼                                ▼
+┌──────────────────┐          ┌──────────────────┐
+│  Serial Handler  │          │  Database Mgr    │
+│  - Reconnect     │          │  - SQLite DB     │
+│  - USB unplug    │          │  - WAL mode      │
+│  - Timeout       │          │  - Batched write │
+└────────┬─────────┘          └────────┬─────────┘
+         │                              │
+         ▼                              ▼
+    Serial Port                  ~/.serial-monitor/
+    (Hardware)                   serial_data.db
+```
 
-#### 3. **Session Manager** (`src/sessionManager.ts`)
+## Core Components
+
+### 1. **Serial Daemon** (`daemon/serial_daemon.py`)
+- **Type**: Background Process (Singleton)
+- **Lifecycle**: Starts with VS Code, runs continuously
+- **State Management**:
+  - `running`: Daemon process alive
+  - `monitoring`: Currently connected to serial port
+- **Key Features**:
+  - File lock prevents multiple instances
+  - Polls command files every 100ms
+  - Runtime port connect/disconnect
+  - Automatic reconnection on USB unplug
+  - Health checks and crash recovery
+  - SQLite data capture
+
+### 2. **Database Manager** (`daemon/db_manager.py`)
 - **Type**: Data Persistence Layer
-- **Current Inputs**:
-  - Port path
-  - Timestamp + data
-  - Session lifecycle events
-- **Current Outputs**:
-  - Log files in serial-sessions/
-  - Buffered writes with configurable intervals
-- **Status**: KEEP - works well, just needs proper integration
+- **Storage**: SQLite with WAL mode
+- **Schema**:
+  ```sql
+  CREATE TABLE serial_data (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp TEXT NOT NULL,
+      port TEXT NOT NULL,
+      data TEXT NOT NULL,
+      session_id TEXT NOT NULL
+  )
+  ```
+- **Features**:
+  - Batched writes (100 lines)
+  - Automatic flush on timeout (5s)
+  - Corruption recovery
+  - Time-based and port-based indexes
 
-#### 4. **MCP Server** (`src/mcp-server-pure.ts`)
-- **Type**: AI Agent Interface (JSON-RPC over stdio)
-- **Current Inputs**:
-  - MCP protocol messages from GitHub Copilot
-  - Tool call requests (list_ports, connect, read, etc.)
-- **Current Outputs**:
-  - MCP responses
-  - Commands to Python TCP server
-- **Status**: MODIFY - Change to use SerialManager instead of TCP
+### 3. **Command Interface** (`daemon/daemon_commands.py`)
+- **Type**: Inter-Process Communication
+- **Protocol**: JSON files
+- **Files**:
+  - `~/.serial-monitor/daemon_command.json` (client → daemon)
+  - `~/.serial-monitor/daemon_response.json` (daemon → client)
+- **Commands**: connect, disconnect, status
+- **Timeout**: 5 seconds
 
-#### 5. **Python TCP Server** (`python/serial_server.py`)
-- **Type**: Persistent Serial Connection Manager
-- **Current Inputs**: JSON commands over TCP socket
-- **Current Outputs**: JSON responses, log files, circular buffer
-- **Status**: REMOVE - Replaced by unified TypeScript solution
+### 4. **MCP Server** (`daemon/mcp_server.py`)
+- **Type**: AI Agent Interface
+- **Protocol**: JSON-RPC 2.0 over stdio
+- **Transport**: Standard input/output
+- **Tools Exposed**: 8 daemon control tools
+- **Integration**: GitHub Copilot via MCP
+
+### 5. **Daemon Manager** (`daemon/daemon_manager.py`)
+- **Type**: Process Lifecycle Management
+- **Features**:
+  - PID file management
+  - File lock (Windows msvcrt / Unix fcntl)
+  - Stale process detection
+  - Health checks
+
+### 6. **Serial Handler** (`daemon/serial_handler.py`)
+- **Type**: Serial Port Communication
+- **Features**:
+  - Automatic reconnection (5 attempts)
+  - USB unplug detection
+  - Timeout handling
+  - Line-based reading
+  - Data buffering
 
 #### 6. **Python Script** (`python/serial_monitor.py`)
 - **Type**: One-shot Serial Operations

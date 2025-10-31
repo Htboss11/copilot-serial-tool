@@ -2,8 +2,8 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 
 /**
- * Provides the Serial Monitor MCP server to VS Code's language model infrastructure
- * This makes the serial monitor tools available to GitHub Copilot and other AI assistants
+ * Provides the Copilot Serial Tool Daemon MCP server to VS Code's language model infrastructure
+ * This makes the daemon control tools available to GitHub Copilot and other AI assistants
  */
 export class SerialMonitorMcpProvider implements vscode.McpServerDefinitionProvider<vscode.McpStdioServerDefinition> {
     private extensionPath: string;
@@ -13,25 +13,26 @@ export class SerialMonitorMcpProvider implements vscode.McpServerDefinitionProvi
     }
 
     /**
-     * Provides the Serial Monitor MCP server definition
+     * Provides the Serial Monitor Daemon MCP server definition
      * This is called eagerly by VS Code to discover available MCP servers
      */
     provideMcpServerDefinitions(
         token: vscode.CancellationToken
     ): vscode.ProviderResult<vscode.McpStdioServerDefinition[]> {
         
-        const mcpServerPath = path.join(this.extensionPath, 'dist', 'mcp-server-pure.js');
+        // Path to Python bootstrap script for daemon (includes vendored dependencies)
+        const mcpServerPath = path.join(this.extensionPath, 'daemon', 'bootstrap.py');
         
-        // Create the MCP server definition
+        // Create the MCP server definition for Python daemon
         const server = new vscode.McpStdioServerDefinition(
-            'Serial Monitor',           // label - shown in UI
-            'node',                      // command
-            [mcpServerPath],            // args
-            {},                          // env
-            '1.0.0'                     // version
+            'Copilot Serial Tool Daemon',    // label - shown in UI
+            'python',                         // command - Python interpreter
+            [mcpServerPath],                 // args - path to Python MCP server
+            {},                              // env - environment variables
+            '2.0.0'                          // version - daemon-based architecture
         );
 
-        console.log('📡 Providing Serial Monitor MCP server definition');
+        console.log('📡 Providing Copilot Serial Tool Daemon MCP server');
         console.log('   Path:', mcpServerPath);
         
         return [server];
@@ -45,10 +46,10 @@ export class SerialMonitorMcpProvider implements vscode.McpServerDefinitionProvi
         server: vscode.McpStdioServerDefinition,
         token: vscode.CancellationToken
     ): vscode.ProviderResult<vscode.McpStdioServerDefinition> {
-        console.log('🔧 Resolving Serial Monitor MCP server:', server.label);
+        console.log('🔧 Resolving Copilot Serial Tool MCP server:', server.label);
         
-        // We could do additional setup here if needed
-        // For now, just return the server as-is
+        // Return the server as-is (no additional setup needed)
         return server;
     }
 }
+

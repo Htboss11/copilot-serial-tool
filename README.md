@@ -1,114 +1,169 @@
-# VS Code Serial Monitor with GitHub Copilot Integration
+# Copilot Serial Tool
 
-A powerful VS Code extension that provides serial port monitoring with seamless GitHub Copilot integration using VS Code's modern Language Model Tools API.
+A VS Code extension that provides AI-powered serial device communication through GitHub Copilot integration. Features a Python-based daemon for real-time serial monitoring, SQLite data storage, and comprehensive MCP (Model Context Protocol) tools for AI agent control.
 
-## ✨ Features
+## 🚀 Features
 
-- **Real-time Serial Monitoring**: Connect to and monitor serial devices with a clean, responsive interface
-- **GitHub Copilot Integration**: Native Language Model Tools enable natural language device control
-- **Auto-detection**: Automatically finds Raspberry Pi Pico and other common devices
-- **Background Monitoring**: Continuous logging with pattern matching and alerts
-- **Session Management**: Automatic file management with size and count limits
-- **Advanced Watch Tasks**: Background monitoring with timeout and pattern detection
+- **AI-Powered Control**: GitHub Copilot can directly control serial devices
+- **Real-time Monitoring**: Background daemon captures serial data continuously  
+- **SQLite Storage**: All serial data stored with timestamps for analysis
+- **Zero Dependencies**: Bundled Python packages - no external installation required
+- **Auto-Detection**: Automatic Raspberry Pi Pico device detection
+- **Port Management**: Clean connection handling with no port locks
 
 ## 🚀 Quick Start
 
 1. **Install the extension** from the VS Code Marketplace
-2. **Connect your device** (e.g., Raspberry Pi Pico on COM9)
-3. **Open Serial Monitor**: `Ctrl+Shift+P` → "Open Serial Monitor"
-4. **Chat with Copilot**: Let GitHub Copilot handle device interaction naturally
+2. **Daemon starts automatically** when VS Code loads
+3. **Connect your device** via Copilot: *"Connect to COM9 and monitor serial data"*
+4. **Query data**: *"Show me the last 100 lines of serial output"*
 
-## 🤖 GitHub Copilot Integration
+## 🤖 GitHub Copilot Integration (MCP)
 
-This extension registers 8 tools with GitHub Copilot using VS Code's Language Model Tools API:
+This extension provides 8 MCP tools for GitHub Copilot to control the serial monitoring daemon:
 
 ### 💡 Natural Language Device Control
-- **"Connect to my Pico and read sensor data"** → Auto-detects, connects, and captures output
-- **"Send 'LED_ON' to turn on the LED"** → Sends command to connected device  
-- **"Monitor for error messages for 5 minutes"** → Starts background pattern monitoring
-- **"What serial ports are available?"** → Lists all detected serial devices
-- **"Show my session history"** → Displays connection history and statistics
+- **"Start monitoring COM9"** → Connects daemon to serial port
+- **"Show me recent serial data"** → Queries last 60 seconds from database
+- **"Disconnect the port so I can use PuTTY"** → Releases port for other tools
+- **"What's the daemon status?"** → Shows running state, connected port, uptime
+- **"Query all ERROR messages from the database"** → SQL query on captured data
 
-### 🛠️ Available Copilot Tools
+### 🛠️ Available MCP Tools
 
 | Tool | Description | AI Usage Example |
 |------|-------------|------------------|
-| `serial_monitor_connect` | Connect to serial port | *"Connect to COM9 at 115200 baud"* |
-| `serial_monitor_send` | Send data to device | *"Send 'reset' command to my device"* |
-| `serial_monitor_read` | Read device output | *"Capture output for 10 seconds"* |
-| `serial_monitor_list_ports` | List available ports | *"What devices are connected?"* |
-| `serial_monitor_session_info` | Get session details | *"Show my connection history"* |
-| `serial_monitor_start_watch` | Start background monitoring | *"Watch for 'ERROR' or 'FAIL' messages"* |
-| `serial_monitor_check_watch` | Check monitoring status | *"Has my monitoring found any issues?"* |
-| `serial_monitor_stop_watch` | Stop background monitoring | *"Cancel the background monitoring"* |
+| `serial_daemon_start` | Start background daemon | *"Start the daemon without connecting"* |
+| `serial_daemon_stop` | Stop daemon gracefully | *"Stop the serial monitoring daemon"* |
+| `serial_daemon_status` | Get daemon status | *"Is the daemon running?"* |
+| `serial_daemon_connect` | Connect to serial port | *"Connect to COM9 at 115200 baud"* |
+| `serial_daemon_disconnect` | Disconnect from port | *"Release COM9 for other tools"* |
+| `serial_query` | SQL query on data | *"SELECT * FROM serial_data WHERE data LIKE '%ERROR%'"* |
+| `serial_recent` | Get recent data | *"Show last 60 seconds of data"* |
+| `serial_tail` | Get last N lines | *"Show last 100 lines"* |
 
-See [GitHub Copilot Integration Guide](./docs/COPILOT_INTEGRATION.md) for detailed integration documentation.
+See [Daemon Documentation](./daemon/README.md) for detailed architecture and usage.
+
+## 🏗️ Architecture
+
+```
+VS Code Extension
+    ↓
+MCP Server (Python)
+    ↓
+Daemon Control Tools
+    ↓ JSON Commands
+Serial Daemon (Background Process)
+    ↓ SQLite Database
+Serial Port → Hardware
+```
+
+### Key Components:
+- **Serial Daemon**: Persistent background process (singleton)
+- **SQLite Database**: All captured data with timestamps
+- **Command Interface**: JSON file-based commands (connect/disconnect)
+- **MCP Server**: Exposes daemon control to GitHub Copilot
+- **File Locks**: Prevents multiple daemon instances
 
 ## ⚙️ Configuration
 
-Configure the extension through VS Code Settings → Extensions → Serial Monitor:
+The daemon starts automatically with VS Code. Control it via:
+- **GitHub Copilot**: Natural language commands
+- **CLI**: `python daemon/mcp_daemon_tools.py [command]`
 
-- **Background Monitoring**: Enable automatic device monitoring
-- **Session Timeout**: Set maximum session duration (60-86400 seconds)
-- **File Rotation**: Configure session file limits (1-100 files, 1-100MB each)
-- **Default Settings**: Set preferred baud rates and connection parameters
+### CLI Usage:
+```powershell
+# Start daemon (no auto-connect)
+python daemon/mcp_daemon_tools.py start --no-autoconnect
 
-## 📁 Session Management
+# Connect to port
+python daemon/mcp_daemon_tools.py connect --port COM9 --baudrate 115200
 
-- **Automatic File Rotation**: Sessions are saved with timestamps and rotated based on your limits
-- **Session Headers**: Each file includes device info, timestamps, and configuration
-- **Background Logging**: Continuous monitoring even when the panel is closed
-- **File Organization**: Clean, organized session files for easy analysis
+# Check status
+python daemon/mcp_daemon_tools.py status
 
-## 🛠️ Technical Details
+# Disconnect (releases port)
+python daemon/mcp_daemon_tools.py disconnect
 
-- **Cross-platform**: Works on Windows, macOS, and Linux
-- **Python Backend**: Reliable serial communication using pyserial
-- **TypeScript Frontend**: Modern VS Code extension with webview UI
-- **MCP Integration**: Standard Model Context Protocol for AI tool integration
+# Stop daemon
+python daemon/mcp_daemon_tools.py stop
+```
+
+## � Data Storage
+
+All serial data is stored in SQLite database:
+- **Location**: `~/.serial-monitor/serial_data.db`
+- **Schema**: timestamp, port, data, session_id
+- **Indexes**: Optimized for time-range and port queries
+- **WAL Mode**: Concurrent reads during writes
+- **Corruption Recovery**: Automatic integrity checks
 
 ## 📋 Requirements
 
 - VS Code 1.74.0 or higher
-- Python 3.7+ (automatically detected)
+- Python 3.7+ with packages:
+  - `pyserial` (serial communication)
+  - `sqlite3` (built-in, data storage)
 - Serial device (USB, Bluetooth, or network)
 
 ## 🔧 Usage Examples
 
-### Manual Operation
-1. Open Command Palette (`Ctrl+Shift+P`)
-2. Run "Open Serial Monitor"
-3. Select your port or use auto-detection
-4. Start monitoring or send commands
-
-### AI-Assisted Operation
+### Via GitHub Copilot (Recommended)
 ```
-You: "Check what's happening on my Pico"
-Copilot: [Uses serial_monitor_connect with auto-detection]
-Copilot: [Uses serial_monitor_read for 3 seconds]
-Copilot: "Your Pico is running the temperature sensor script and reporting 23.5°C"
+You: "Start the daemon and connect to COM9"
+Copilot: [Uses serial_daemon_start and serial_daemon_connect]
+Copilot: "Daemon started and connected to COM9 at 115200 baud. Monitoring active."
 
-You: "Send a reset command"
-Copilot: [Uses serial_monitor_send with "reset\n"]
-Copilot: "Reset command sent successfully"
+You: "Show me the last 50 lines"
+Copilot: [Uses serial_tail with lines=50]
+Copilot: [Displays captured data]
+
+You: "Disconnect so I can use PuTTY"
+Copilot: [Uses serial_daemon_disconnect]
+Copilot: "Disconnected from COM9. Port is now available for other tools."
 ```
 
-## 🐛 Troubleshooting
+### Via CLI
+```powershell
+# Start daemon
+python daemon/mcp_daemon_tools.py start --no-autoconnect
 
-- **Port Access Issues**: Ensure no other applications are using the serial port
+# Connect to device
+python daemon/mcp_daemon_tools.py connect --port COM9 --baudrate 115200
+
+# Query recent data
+python daemon/mcp_daemon_tools.py recent --seconds 60
+
+# Get last 100 lines
+python daemon/mcp_daemon_tools.py tail --lines 100
+
+# Disconnect port
+python daemon/mcp_daemon_tools.py disconnect
+
+# Stop daemon
+python daemon/mcp_daemon_tools.py stop
+```
+
+## � Troubleshooting
+
+- **Port Access Issues**: Use `serial_daemon_disconnect` to release port for other tools
+- **Daemon Not Starting**: Check `~/.serial-monitor/daemon.log` for errors
+- **Multiple Daemons**: File lock prevents this - only one daemon can run at a time
+- **Database Locked**: Daemon uses WAL mode - concurrent reads are safe
 - **Python Not Found**: Extension will guide you through Python installation
-- **Device Not Detected**: Check USB connections and device drivers
-- **Permission Errors**: Run VS Code as administrator if needed (Windows)
 
-## 📚 Resources
+## 📚 Documentation
 
-- [MCP Tools Guide](./MCP-TOOLS-GUIDE.md) - Detailed AI tool documentation
-- [Session Management](./docs/sessions.md) - Session file format and management
-- [Troubleshooting Guide](./docs/troubleshooting.md) - Common issues and solutions
+- **[Daemon Architecture](./daemon/README.md)** - Complete daemon documentation
+- **[MCP Server Setup](./MCP_SETUP.md)** - MCP configuration guide
+- **[Architecture Overview](./ARCHITECTURE.md)** - System design
 
 ## 🤝 Contributing
 
-Contributions welcome! Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
+Contributions welcome! Please test with the daemon architecture:
+1. Fork the repository
+2. Test daemon functionality: `python daemon/test_mcp_server.py`
+3. Submit pull request with test results
 
 ## 📄 License
 
@@ -122,95 +177,8 @@ MIT License - see [LICENSE](./LICENSE) for details.
 
 ---
 
-*Made with ❤️ for the maker community. Happy monitoring!*
+*Made with ❤️ for the maker community. Persistent serial monitoring made simple!*
 
-### ⚡ Background Task Manager
-- Run serial watches asynchronously without blocking the UI
-- Support multiple simultaneous watches on different ports
-- Circular buffer for efficient output storage
-- Pattern matching with regex support
-- Automatic timeout handling
-
-## Requirements
-
-- VS Code 1.105.0 or higher
-- Node.js (for serial communication)
-- Serial devices (tested with Raspberry Pi Pico)
-
-## Installation & Usage
-
-### Development Setup
-1. Clone this repository
-2. Run `npm install` to install dependencies
-3. Press `F5` to launch the extension in a new Extension Development Host window
-
-### Commands
-- **Serial Monitor: Open Serial Monitor** - Opens the serial monitoring webview
-- **Serial Monitor: List Serial Ports** - Shows available serial ports in a quick pick
-- **Serial Monitor: Detect Raspberry Pi Pico** - Auto-detects connected Pico devices
-
-## Extension Settings
-
-This extension contributes the following settings:
-
-* `serialMonitor.defaultBaudRate`: Default baud rate for serial connections (default: 115200)
-* `serialMonitor.bufferLines`: Number of lines to keep in buffer (default: 1000)
-* `serialMonitor.autoDetectPico`: Automatically detect Raspberry Pi Pico devices (default: true)
-* `serialMonitor.watchTimeout`: Default timeout for watch operations in milliseconds (default: 60000)
-
-## AI Agent Integration Example
-
-```typescript
-// AI Agent workflow example
-const taskId = await vscode.commands.executeCommand('serial-monitor.mcp.serial_monitor_start_async', {
-    port: "auto",  // Auto-detect Pico
-    watch_for: ["Scan complete", "ERROR"],
-    timeout_ms: 30000,
-    buffer_lines: 100
-});
-
-// Poll for results
-const status = await vscode.commands.executeCommand('serial-monitor.mcp.serial_monitor_check', {
-    task_id: taskId.data.task_id
-});
-
-// Send command
-await vscode.commands.executeCommand('serial-monitor.mcp.serial_monitor_send', {
-    port: "COM9",
-    data: "scan\n"
-});
-```
-
-## Architecture
-
-The extension is built with:
-- **TypeScript** for robust type safety
-- **SerialPort** library for serial communication
-- **MCP Protocol** for AI agent integration
-- **Webview API** for the user interface
-- **Async Task Management** for background operations
-
-## Testing
-
-1. Connect a Raspberry Pi Pico or other serial device
-2. Launch the extension with `F5`
-3. Use the command palette: "Serial Monitor: Open Serial Monitor"
-4. Test auto-detection and manual connection
-5. Send commands and monitor output
-6. Test MCP tools via AI agent integration
-
-## Known Issues
-
-- Serial port access may require appropriate permissions on some systems
-- Hot-plugging of devices may require manual refresh of port list
-
-## Release Notes
-
-### 0.0.1
-- Initial release with core serial monitoring functionality
-- MCP tool integration for AI agents
-- Webview UI for real-time monitoring
-- Auto-detection for Raspberry Pi Pico devices
 - Async watch management with pattern matching
 
 ---

@@ -1,10 +1,10 @@
 {
-  "name": "serial-monitor",
-  "version": "1.0.0",
-  "description": "MCP Server for VS Code Serial Monitor - provides AI agents with serial communication tools",
+  "name": "serial-monitor-daemon",
+  "version": "2.0.0",
+  "description": "MCP Server for VS Code Serial Monitor Daemon - provides AI agents with persistent serial monitoring and data capture",
   "type": "stdio",
-  "command": "node",
-  "args": ["dist/mcp-server-pure.js"],
+  "command": "python",
+  "args": ["daemon/mcp_server.py"],
   "env": {},
   "capabilities": {
     "tools": true,
@@ -13,36 +13,36 @@
   },
   "tools": [
     {
-      "name": "serial_monitor_list_ports",
-      "description": "List all available serial ports with device information"
+      "name": "serial_daemon_start",
+      "description": "Start serial monitor daemon (persistent background service)"
     },
     {
-      "name": "serial_monitor_connect", 
-      "description": "Connect to a serial device on specified port"
+      "name": "serial_daemon_stop",
+      "description": "Stop serial monitor daemon gracefully"
     },
     {
-      "name": "serial_monitor_send",
-      "description": "Send data to connected serial device"
+      "name": "serial_daemon_status",
+      "description": "Get daemon status (running, monitoring, port, uptime, lines captured)"
     },
     {
-      "name": "serial_monitor_read",
-      "description": "Read data from connected serial device"
+      "name": "serial_daemon_connect",
+      "description": "Connect daemon to serial port and start monitoring"
     },
     {
-      "name": "serial_monitor_start_async",
-      "description": "Start background monitoring with pattern matching and timeout"
+      "name": "serial_daemon_disconnect", 
+      "description": "Disconnect from serial port (releases for other tools)"
     },
     {
-      "name": "serial_monitor_check",
-      "description": "Check status of background watch tasks"
+      "name": "serial_query",
+      "description": "Execute SQL query on captured serial data"
     },
     {
-      "name": "serial_monitor_cancel",
-      "description": "Cancel background watch tasks"
+      "name": "serial_recent",
+      "description": "Get recent serial data (last N seconds)"
     },
     {
-      "name": "serial_monitor_session_info",
-      "description": "Get current session information and statistics"
+      "name": "serial_tail",
+      "description": "Get last N lines of serial data"
     }
   ]
 }
