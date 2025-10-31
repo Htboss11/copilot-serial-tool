@@ -293,6 +293,24 @@ class SerialDaemon:
                     'message': 'Disconnected from port' if success else 'Failed to disconnect'
                 }
             
+            elif command_name == 'write':
+                data = cmd.get('data', '')
+                if not data:
+                    response = {'success': False, 'message': 'No data provided to write'}
+                elif not self.handler or not self.handler.is_connected():
+                    response = {'success': False, 'message': 'Not connected to any port'}
+                else:
+                    success = self.handler.write(data)
+                    if success:
+                        response = {
+                            'success': True,
+                            'message': f'Sent: {data}',
+                            'data': data,
+                            'length': len(data)
+                        }
+                    else:
+                        response = {'success': False, 'message': 'Failed to write data'}
+            
             elif command_name == 'status':
                 status = self.get_status()
                 response = {

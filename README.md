@@ -5,6 +5,7 @@ A VS Code extension that provides AI-powered serial device communication through
 ## 🚀 Features
 
 - **AI-Powered Control**: GitHub Copilot can directly control serial devices
+- **Bidirectional Communication**: Send commands and receive data from serial devices
 - **Real-time Monitoring**: Background daemon captures serial data continuously  
 - **SQLite Storage**: All serial data stored with timestamps for analysis
 - **Zero Dependencies**: Bundled Python packages - no external installation required
@@ -20,10 +21,11 @@ A VS Code extension that provides AI-powered serial device communication through
 
 ## 🤖 GitHub Copilot Integration (MCP)
 
-This extension provides 8 MCP tools for GitHub Copilot to control the serial monitoring daemon:
+This extension provides 9 MCP tools for GitHub Copilot to control the serial monitoring daemon:
 
 ### 💡 Natural Language Device Control
 - **"Start monitoring COM9"** → Connects daemon to serial port
+- **"Send 'Hello World' to the device"** → Transmits data to connected serial device
 - **"Show me recent serial data"** → Queries last 60 seconds from database
 - **"Disconnect the port so I can use PuTTY"** → Releases port for other tools
 - **"What's the daemon status?"** → Shows running state, connected port, uptime
@@ -38,6 +40,7 @@ This extension provides 8 MCP tools for GitHub Copilot to control the serial mon
 | `serial_daemon_status` | Get daemon status | *"Is the daemon running?"* |
 | `serial_daemon_connect` | Connect to serial port | *"Connect to COM9 at 115200 baud"* |
 | `serial_daemon_disconnect` | Disconnect from port | *"Release COM9 for other tools"* |
+| `serial_send_data` | Send data to device | *"Send 'Hello' to the device"* |
 | `serial_query` | SQL query on data | *"SELECT * FROM serial_data WHERE data LIKE '%ERROR%'"* |
 | `serial_recent` | Get recent data | *"Show last 60 seconds of data"* |
 | `serial_tail` | Get last N lines | *"Show last 100 lines"* |

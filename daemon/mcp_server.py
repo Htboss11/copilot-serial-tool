@@ -101,6 +101,20 @@ class CopilotSerialToolMCPServer:
                 }
             },
             {
+                "name": "serial_send_data",
+                "description": "Send data/command to connected serial device. Use when you need to send commands, control device, or transmit data to hardware.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "data": {
+                            "type": "string",
+                            "description": "Data string to send to device (newline will be added automatically)"
+                        }
+                    },
+                    "required": ["data"]
+                }
+            },
+            {
                 "name": "serial_query",
                 "description": "Execute SQL query on captured serial data. Query the SQLite database containing all serial port data captured by the daemon.",
                 "inputSchema": {
@@ -203,6 +217,10 @@ class CopilotSerialToolMCPServer:
             
             elif tool_name == "serial_daemon_disconnect":
                 return self.daemon_tools.disconnect_port()
+            
+            elif tool_name == "serial_send_data":
+                data = arguments["data"]
+                return self.daemon_tools.send_data(data)
             
             elif tool_name == "serial_query":
                 sql = arguments["sql"]

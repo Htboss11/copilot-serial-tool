@@ -254,6 +254,26 @@ class DaemonMCPTools:
         # Send disconnect command
         return self.commands.send_command('disconnect')
     
+    def send_data(self, data: str) -> Dict[str, Any]:
+        """
+        Send data to connected serial device
+        
+        Args:
+            data: String data to send to device
+        
+        Returns:
+            Success status and message
+        """
+        if not self.is_daemon_running():
+            return {
+                'success': False,
+                'message': 'Daemon not running',
+                'error': 'DAEMON_NOT_RUNNING'
+            }
+        
+        # Send write command
+        return self.commands.send_command('write', data=data)
+    
     def query_data(self, sql: str, params: Optional[List[Any]] = None) -> Dict[str, Any]:
         """
         Execute SQL query on serial data
@@ -422,6 +442,20 @@ def get_mcp_tools():
             'parameters': {
                 'type': 'object',
                 'properties': {}
+            }
+        },
+        {
+            'name': 'serial_send_data',
+            'description': 'Send data/command to connected serial device. Use when you need to send commands, control device, or transmit data to hardware.',
+            'parameters': {
+                'type': 'object',
+                'properties': {
+                    'data': {
+                        'type': 'string',
+                        'description': 'Data string to send to device (newline will be added automatically)'
+                    }
+                },
+                'required': ['data']
             }
         },
         {
