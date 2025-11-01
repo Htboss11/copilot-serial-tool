@@ -297,10 +297,10 @@ class SerialDaemon:
                 data = cmd.get('data', '')
                 if not data:
                     response = {'success': False, 'message': 'No data provided to write'}
-                elif not self.handler or not self.handler.is_connected():
+                elif not self.serial_handler or not self.serial_handler.is_connected():
                     response = {'success': False, 'message': 'Not connected to any port'}
                 else:
-                    success = self.handler.write(data)
+                    success = self.serial_handler.write(data)
                     if success:
                         response = {
                             'success': True,

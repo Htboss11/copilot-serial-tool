@@ -2,7 +2,7 @@
   "name": "copilot-serial-tool",
   "displayName": "Copilot Serial Tool",
   "description": "VS Code serial monitor extension with GitHub Copilot integration, featuring AI-powered device communication and Python-based serial monitoring",
-  "version": "1.3.0",
+  "version": "1.3.3",
   "publisher": "Htboss11",
   "license": "MIT",
   "repository": {

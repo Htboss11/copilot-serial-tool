@@ -5,12 +5,15 @@ import { SerialMonitorMcpProvider } from './mcpServerProvider';
  * Copilot Serial Tool Extension v2.0
  * Provides Python daemon-based serial monitoring with MCP integration
  */
+
+let mcpProvider: SerialMonitorMcpProvider | undefined;
+
 export function activate(context: vscode.ExtensionContext) {
     console.log('Copilot Serial Tool extension activated');
 
     // Register MCP Server Provider
     try {
-        const mcpProvider = new SerialMonitorMcpProvider(context.extensionPath);
+        mcpProvider = new SerialMonitorMcpProvider(context.extensionPath);
         const mcpDisposable = vscode.lm.registerMcpServerDefinitionProvider(
             'copilot-serial-tool.mcp-provider',
             mcpProvider
@@ -31,6 +34,18 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(statusCommand);
 }
 
-export function deactivate() {
+export async function deactivate() {
+    console.log('Copilot Serial Tool extension deactivating - stopping daemon...');
+    
+    // Stop the daemon when extension is deactivated
+    if (mcpProvider) {
+        try {
+            await mcpProvider.stopDaemon();
+            console.log('Daemon stopped successfully during deactivation');
+        } catch (error) {
+            console.error('Error stopping daemon during deactivation:', error);
+        }
+    }
+    
     console.log('Copilot Serial Tool extension deactivated');
 }

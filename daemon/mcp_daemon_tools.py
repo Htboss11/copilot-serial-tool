@@ -65,21 +65,22 @@ class DaemonMCPTools:
                 cmd_args.append('--no-autoconnect')
             
             # Use subprocess to start daemon
+            # IMPORTANT: Don't capture stdout/stderr to avoid pipe blocking
             if sys.platform == 'win32':
                 # Windows: use CREATE_NEW_PROCESS_GROUP to detach
                 process = subprocess.Popen(
                     cmd_args,
-                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
                     stdin=subprocess.DEVNULL
                 )
             else:
                 # Unix: use nohup-style detachment
                 process = subprocess.Popen(
                     cmd_args,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
                     stdin=subprocess.DEVNULL,
                     start_new_session=True
                 )
@@ -264,7 +265,7 @@ class DaemonMCPTools:
         Returns:
             Success status and message
         """
-        if not self.is_daemon_running():
+        if not self.daemon_mgr.check_daemon_health():
             return {
                 'success': False,
                 'message': 'Daemon not running',
