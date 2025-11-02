@@ -35,17 +35,13 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export async function deactivate() {
-    console.log('Copilot Serial Tool extension deactivating - stopping daemon...');
+    console.log('Copilot Serial Tool extension deactivating');
     
-    // Stop the daemon when extension is deactivated
-    if (mcpProvider) {
-        try {
-            await mcpProvider.stopDaemon();
-            console.log('Daemon stopped successfully during deactivation');
-        } catch (error) {
-            console.error('Error stopping daemon during deactivation:', error);
-        }
-    }
+    // NOTE: We do NOT stop the daemon here because:
+    // 1. Other VS Code windows might still be using it (multi-window support)
+    // 2. The daemon is designed to be a persistent system service
+    // 3. Users can explicitly stop it via the serial_daemon_stop MCP tool
+    // 4. The daemon will auto-cleanup on system shutdown/reboot
     
-    console.log('Copilot Serial Tool extension deactivated');
+    console.log('Copilot Serial Tool extension deactivated (daemon left running for other windows)');
 }
