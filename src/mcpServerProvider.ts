@@ -1,6 +1,55 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
 import { spawn } from 'child_process';
+
+/**
+ * Find a working Python executable
+ * Tries common locations and verifies Python can execute
+ */
+function findPythonExecutable(): string {
+    // Try common Python locations on Windows
+    const candidates = [
+        'python',      // System PATH
+        'python3',     // Unix-style
+        'py',          // Windows Python Launcher
+    ];
+    
+    // Add Windows-specific paths
+    if (process.platform === 'win32') {
+        const programFiles = process.env['ProgramFiles'] || 'C:\\Program Files';
+        const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+        const localAppData = process.env['LOCALAPPDATA'] || path.join(process.env['USERPROFILE'] || 'C:\\Users\\Default', 'AppData', 'Local');
+        
+        candidates.push(
+            path.join(programFiles, 'Python312', 'python.exe'),
+            path.join(programFiles, 'Python311', 'python.exe'),
+            path.join(programFiles, 'Python310', 'python.exe'),
+            path.join(localAppData, 'Programs', 'Python', 'Python312', 'python.exe'),
+            path.join(localAppData, 'Programs', 'Python', 'Python311', 'python.exe'),
+            path.join(localAppData, 'Programs', 'Python', 'Python310', 'python.exe'),
+        );
+    }
+    
+    // Return first candidate that exists (for full paths) or first simple command
+    for (const candidate of candidates) {
+        if (path.isAbsolute(candidate)) {
+            if (fs.existsSync(candidate)) {
+                console.log(`Found Python at: ${candidate}`);
+                return candidate;
+            }
+        } else {
+            // For commands like 'python', 'python3', we'll try them
+            // (they'll be resolved by the shell)
+            console.log(`Using Python command: ${candidate}`);
+            return candidate;
+        }
+    }
+    
+    // Default fallback
+    console.warn('No Python found, falling back to "python"');
+    return 'python';
+}
 
 /**
  * Provides the Copilot Serial Tool Daemon MCP server to VS Code's language model infrastructure
@@ -8,9 +57,11 @@ import { spawn } from 'child_process';
  */
 export class SerialMonitorMcpProvider implements vscode.McpServerDefinitionProvider<vscode.McpStdioServerDefinition> {
     private extensionPath: string;
+    private pythonExecutable: string;
 
     constructor(extensionPath: string) {
         this.extensionPath = extensionPath;
+        this.pythonExecutable = findPythonExecutable();
     }
     
     /**
@@ -21,8 +72,8 @@ export class SerialMonitorMcpProvider implements vscode.McpServerDefinitionProvi
         return new Promise((resolve, reject) => {
             const toolsPath = path.join(this.extensionPath, 'daemon', 'mcp_daemon_tools.py');
             
-            // Call the daemon stop command
-            const stopProcess = spawn('python', [toolsPath, 'stop'], {
+            // Use the same Python executable we use for MCP server
+            const stopProcess = spawn(this.pythonExecutable, [toolsPath, 'stop'], {
                 cwd: path.join(this.extensionPath, 'daemon')
             });
             
@@ -71,13 +122,13 @@ export class SerialMonitorMcpProvider implements vscode.McpServerDefinitionProvi
         // Create the MCP server definition for Python daemon
         const server = new vscode.McpStdioServerDefinition(
             'Copilot Serial Tool Daemon',    // label - shown in UI
-            'python',                         // command - Python interpreter
+            this.pythonExecutable,            // command - Python interpreter (consistent across windows)
             [mcpServerPath],                 // args - path to Python MCP server
             {},                              // env - environment variables
             '2.0.0'                          // version - daemon-based architecture
         );
 
-        console.log('📡 Providing Copilot Serial Tool Daemon MCP server');
+        console.log(`📡 Providing Copilot Serial Tool Daemon MCP server (using ${this.pythonExecutable})`);
         console.log('   Path:', mcpServerPath);
         
         return [server];
