@@ -1,24 +1,26 @@
 """
 SQLite Database Manager for Serial Data
-Handles concurrent access, WAL mode, write batching, corruption recovery
+Handles concurrent access, WAL mode, write batching, corruption recovery, auto-cleanup
 """
 import sqlite3
 import time
 from pathlib import Path
 from typing import List, Dict, Optional, Any
-from threading import Lock
+from threading import Lock, Thread, Event
 from datetime import datetime
 
 
 class DatabaseManager:
     """Manages SQLite database for serial data with concurrency support"""
     
-    def __init__(self, db_path: Path):
+    def __init__(self, db_path: Path, max_records: int = 10000, cleanup_interval: int = 60):
         """
         Initialize database manager
         
         Args:
             db_path: Path to SQLite database file
+            max_records: Maximum records to keep (default 10,000)
+            cleanup_interval: Seconds between cleanup runs (default 60)
         """
         self.db_path = Path(db_path)
         self.connection = None
@@ -28,8 +30,17 @@ class DatabaseManager:
         self.last_commit = time.time()
         self.commit_interval = 1.0  # Or every 1 second
         
+        # Cleanup settings
+        self.max_records = max_records
+        self.cleanup_interval = cleanup_interval
+        self.cleanup_thread: Optional[Thread] = None
+        self.cleanup_stop_event = Event()
+        
         # Initialize database
         self._init_database()
+        
+        # Start cleanup task
+        self._start_cleanup_task()
     
     def _init_database(self):
         """Initialize database with schema and settings"""
@@ -351,8 +362,82 @@ class DatabaseManager:
         
         return cursor.fetchone()[0]
     
+    def _cleanup_old_records(self):
+        """
+        Delete old records to keep database size manageable
+        Keeps only the most recent max_records
+        """
+        try:
+            # Get current record count
+            cursor = self.connection.execute("SELECT COUNT(*) FROM serial_data")
+            current_count = cursor.fetchone()[0]
+            
+            if current_count <= self.max_records:
+                return  # No cleanup needed
+            
+            # Calculate how many to delete
+            to_delete = current_count - self.max_records
+            
+            print(f"Database cleanup: {current_count:,} records, deleting oldest {to_delete:,}, keeping {self.max_records:,}")
+            
+            # Delete oldest records (keep most recent max_records)
+            # This is efficient because we have an index on id (PRIMARY KEY)
+            with self.write_lock:
+                self.connection.execute(f"""
+                    DELETE FROM serial_data 
+                    WHERE id IN (
+                        SELECT id FROM serial_data 
+                        ORDER BY id ASC 
+                        LIMIT {to_delete}
+                    )
+                """)
+                self.connection.commit()
+                
+                # VACUUM to reclaim disk space (this can be slow, but necessary)
+                print("Running VACUUM to reclaim disk space...")
+                self.connection.execute("VACUUM")
+                
+            print(f"Cleanup complete. Database now has {self.max_records:,} records.")
+            
+        except Exception as e:
+            print(f"Error during database cleanup: {e}")
+    
+    def _cleanup_task(self):
+        """Background task that periodically cleans up old records"""
+        print(f"Database cleanup task started (interval: {self.cleanup_interval}s, max records: {self.max_records:,})")
+        
+        while not self.cleanup_stop_event.is_set():
+            # Wait for cleanup interval or stop event
+            if self.cleanup_stop_event.wait(timeout=self.cleanup_interval):
+                break  # Stop event was set
+            
+            # Perform cleanup
+            try:
+                self._cleanup_old_records()
+            except Exception as e:
+                print(f"Cleanup task error: {e}")
+        
+        print("Database cleanup task stopped")
+    
+    def _start_cleanup_task(self):
+        """Start background cleanup task"""
+        if self.cleanup_thread is None or not self.cleanup_thread.is_alive():
+            self.cleanup_stop_event.clear()
+            self.cleanup_thread = Thread(target=self._cleanup_task, daemon=True)
+            self.cleanup_thread.start()
+    
+    def _stop_cleanup_task(self):
+        """Stop background cleanup task"""
+        if self.cleanup_thread and self.cleanup_thread.is_alive():
+            print("Stopping cleanup task...")
+            self.cleanup_stop_event.set()
+            self.cleanup_thread.join(timeout=5)
+    
     def close(self):
         """Close database connection (flush first)"""
+        # Stop cleanup task first
+        self._stop_cleanup_task()
+        
         if self.connection:
             try:
                 # Flush any pending writes

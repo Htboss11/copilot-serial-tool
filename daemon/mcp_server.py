@@ -35,7 +35,7 @@ class CopilotSerialToolMCPServer:
         return [
             {
                 "name": "serial_daemon_start",
-                "description": "Start serial monitor daemon (idempotent - safe to call if already running). By default starts without connecting to any port. Use auto_connect=true to connect immediately.",
+                "description": "Start serial monitor daemon (idempotent - safe to call if already running). By default starts without connecting to any port. Use auto_connect=true to connect immediately. Database auto-cleanup keeps records manageable.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -53,6 +53,16 @@ class CopilotSerialToolMCPServer:
                             "type": "integer",
                             "description": "Baud rate for serial connection if auto_connect=true",
                             "default": 115200
+                        },
+                        "max_records": {
+                            "type": "integer",
+                            "description": "Maximum database records to keep (default: 10,000). Auto-cleanup deletes oldest records.",
+                            "default": 10000
+                        },
+                        "cleanup_interval": {
+                            "type": "integer",
+                            "description": "Seconds between auto-cleanup runs (default: 60)",
+                            "default": 60
                         }
                     }
                 }
@@ -75,21 +85,20 @@ class CopilotSerialToolMCPServer:
             },
             {
                 "name": "serial_daemon_connect",
-                "description": "Connect daemon to a serial port and start monitoring. Daemon must be running first. Port will be exclusively held by daemon until disconnected.",
+                "description": "Connect daemon to a serial port and start monitoring. Auto-detects Raspberry Pi Pico if port not specified. Port will be exclusively held by daemon until disconnected.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "port": {
                             "type": "string",
-                            "description": "Serial port to monitor (e.g., COM9)"
+                            "description": "Serial port to monitor (e.g., COM9). If omitted, auto-detect Raspberry Pi Pico."
                         },
                         "baudrate": {
                             "type": "integer",
                             "description": "Baud rate for serial connection",
                             "default": 115200
                         }
-                    },
-                    "required": ["port"]
+                    }
                 }
             },
             {
@@ -182,6 +191,22 @@ class CopilotSerialToolMCPServer:
                         }
                     }
                 }
+            },
+            {
+                "name": "serial_list_ports",
+                "description": "List all available serial ports with device information. Shows all COM ports, USB serial devices, and their details.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            },
+            {
+                "name": "serial_find_pico",
+                "description": "Find Raspberry Pi Pico devices. Returns list of ports where Pico is detected. Useful for auto-detection.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
             }
         ]
     
@@ -202,7 +227,15 @@ class CopilotSerialToolMCPServer:
                 auto_connect = arguments.get("auto_connect", False)
                 port = arguments.get("port", "COM9")
                 baudrate = arguments.get("baudrate", 115200)
-                return self.daemon_tools.start_daemon(auto_connect=auto_connect, port=port, baudrate=baudrate)
+                max_records = arguments.get("max_records", 10000)
+                cleanup_interval = arguments.get("cleanup_interval", 60)
+                return self.daemon_tools.start_daemon(
+                    auto_connect=auto_connect, 
+                    port=port, 
+                    baudrate=baudrate,
+                    max_records=max_records,
+                    cleanup_interval=cleanup_interval
+                )
             
             elif tool_name == "serial_daemon_stop":
                 return self.daemon_tools.stop_daemon()
@@ -211,7 +244,7 @@ class CopilotSerialToolMCPServer:
                 return self.daemon_tools.get_status()
             
             elif tool_name == "serial_daemon_connect":
-                port = arguments["port"]
+                port = arguments.get("port")  # Optional - will auto-detect if None
                 baudrate = arguments.get("baudrate", 115200)
                 return self.daemon_tools.connect_port(port, baudrate)
             
@@ -239,6 +272,25 @@ class CopilotSerialToolMCPServer:
                 port = arguments.get("port")
                 session_id = arguments.get("session_id")
                 return self.daemon_tools.get_tail(lines, port, session_id)
+            
+            elif tool_name == "serial_list_ports":
+                from mcp_daemon_tools import find_serial_ports
+                ports = find_serial_ports()
+                return {
+                    "success": True,
+                    "ports": ports,
+                    "count": len(ports)
+                }
+            
+            elif tool_name == "serial_find_pico":
+                from mcp_daemon_tools import find_pico_ports
+                pico_ports = find_pico_ports()
+                return {
+                    "success": True,
+                    "pico_ports": pico_ports,
+                    "count": len(pico_ports),
+                    "message": f"Found {len(pico_ports)} Raspberry Pi Pico device(s)"
+                }
             
             else:
                 return {

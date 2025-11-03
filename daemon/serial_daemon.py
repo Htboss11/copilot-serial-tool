@@ -21,16 +21,24 @@ from daemon_commands import DaemonCommands
 class SerialDaemon:
     """Main daemon process for serial monitoring"""
     
-    def __init__(self):
+    def __init__(self, max_records: int = 10000, cleanup_interval: int = 60):
         """
         Initialize daemon (does NOT connect to port immediately)
         Use connect_port() to start monitoring a specific port
+        
+        Args:
+            max_records: Maximum database records to keep (default 10,000)
+            cleanup_interval: Seconds between cleanup runs (default 60)
         """
         # Initialize managers
         self.daemon_mgr = DaemonManager()
         self.db_mgr: Optional[DatabaseManager] = None
         self.serial_handler: Optional[SerialHandler] = None
         self.command_interface = DaemonCommands()  # Command routing
+        
+        # Database settings
+        self.max_records = max_records
+        self.cleanup_interval = cleanup_interval
         
         # Current port info (None until connected)
         self.current_port: Optional[str] = None
@@ -48,6 +56,7 @@ class SerialDaemon:
         signal.signal(signal.SIGINT, self._signal_handler)
         
         print(f"Daemon initialized (session: {self.session_id})")
+        print(f"Database settings: max_records={max_records:,}, cleanup_interval={cleanup_interval}s")
         print("Use connect_port(port, baudrate) to start monitoring")
     
     def _signal_handler(self, signum, frame):
@@ -86,7 +95,11 @@ class SerialDaemon:
             
             # SCENARIO 2.6: Initialize database (handles corruption)
             try:
-                self.db_mgr = DatabaseManager(self.daemon_mgr.db_file)
+                self.db_mgr = DatabaseManager(
+                    self.daemon_mgr.db_file,
+                    max_records=self.max_records,
+                    cleanup_interval=self.cleanup_interval
+                )
                 
                 # Check integrity
                 if not self.db_mgr.check_integrity():
@@ -436,11 +449,16 @@ def main():
     parser.add_argument("--port", default=None, help="Serial port to monitor (optional)")
     parser.add_argument("--baudrate", type=int, default=115200, help="Baud rate")
     parser.add_argument("--no-autoconnect", action="store_true", help="Don't auto-connect to port on startup")
+    parser.add_argument("--max-records", type=int, default=10000, help="Maximum database records to keep (default: 10,000)")
+    parser.add_argument("--cleanup-interval", type=int, default=60, help="Seconds between cleanup runs (default: 60)")
     
     args = parser.parse_args()
     
     # Create daemon (no port initially)
-    daemon = SerialDaemon()
+    daemon = SerialDaemon(
+        max_records=args.max_records,
+        cleanup_interval=args.cleanup_interval
+    )
     
     # Start daemon
     if not daemon.start():

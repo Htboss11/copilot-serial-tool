@@ -19,6 +19,61 @@ from db_manager import DatabaseManager
 from daemon_commands import DaemonCommands
 
 
+def find_serial_ports() -> List[Dict[str, Any]]:
+    """
+    Find all available serial ports with device information
+    
+    Returns:
+        List of port dictionaries with device, description, manufacturer, vid, pid
+    """
+    try:
+        import serial.tools.list_ports
+        ports = []
+        for port in serial.tools.list_ports.comports():
+            ports.append({
+                'device': port.device,
+                'description': port.description,
+                'manufacturer': port.manufacturer or 'Unknown',
+                'vid': port.vid,
+                'pid': port.pid,
+                'serial_number': port.serial_number or 'Unknown'
+            })
+        return ports
+    except Exception as e:
+        print(f"Error listing ports: {e}", file=sys.stderr)
+        return []
+
+
+def find_pico_ports() -> List[str]:
+    """
+    Find all Raspberry Pi Pico devices
+    
+    Returns:
+        List of port device names (e.g., ['COM9', 'COM10'])
+    """
+    try:
+        import serial.tools.list_ports
+        pico_ports = []
+        for port in serial.tools.list_ports.comports():
+            # Raspberry Pi Pico: VID=2E8A (Raspberry Pi), PID=0005 (Pico)
+            is_pico = False
+            
+            if port.vid == 0x2E8A and port.pid == 0x0005:
+                is_pico = True
+            elif port.manufacturer and 'Raspberry Pi' in port.manufacturer:
+                is_pico = True
+            elif port.description and ('Pico' in port.description or 'RP2' in port.description):
+                is_pico = True
+                
+            if is_pico:
+                pico_ports.append(port.device)
+                
+        return pico_ports
+    except Exception as e:
+        print(f"Error finding Pico ports: {e}", file=sys.stderr)
+        return []
+
+
 class DaemonMCPTools:
     """MCP tools for daemon control and data access"""
     
@@ -28,7 +83,8 @@ class DaemonMCPTools:
         self.daemon_script = DAEMON_DIR / "serial_daemon.py"
         self.commands = DaemonCommands()  # Command interface
     
-    def start_daemon(self, auto_connect: bool = False, port: str = "COM9", baudrate: int = 115200) -> Dict[str, Any]:
+    def start_daemon(self, auto_connect: bool = False, port: str = "COM9", baudrate: int = 115200, 
+                    max_records: int = 10000, cleanup_interval: int = 60) -> Dict[str, Any]:
         """
         Start serial daemon (IDEMPOTENT)
         Daemon starts without connecting to any port by default
@@ -37,6 +93,8 @@ class DaemonMCPTools:
             auto_connect: If True, automatically connect to port on startup
             port: Serial port to monitor (if auto_connect=True)
             baudrate: Baud rate (if auto_connect=True)
+            max_records: Maximum database records to keep (default 10,000)
+            cleanup_interval: Seconds between cleanup runs (default 60)
         
         Returns:
             Status dictionary with success/error information
@@ -58,6 +116,10 @@ class DaemonMCPTools:
         try:
             # Build command args
             cmd_args = [sys.executable, str(self.daemon_script)]
+            
+            # Add database settings
+            cmd_args.extend(['--max-records', str(max_records)])
+            cmd_args.extend(['--cleanup-interval', str(cleanup_interval)])
             
             if auto_connect and port:
                 cmd_args.extend(['--port', port, '--baudrate', str(baudrate)])
@@ -214,12 +276,13 @@ class DaemonMCPTools:
         
         return info
     
-    def connect_port(self, port: str, baudrate: int = 115200) -> Dict[str, Any]:
+    def connect_port(self, port: Optional[str] = None, baudrate: int = 115200) -> Dict[str, Any]:
         """
         Connect daemon to a serial port (start monitoring)
+        Auto-detects Raspberry Pi Pico if port not specified
         
         Args:
-            port: Serial port to monitor (e.g., "COM9")
+            port: Serial port to monitor (e.g., "COM9"). If None, auto-detect Pico.
             baudrate: Baud rate (default 115200)
         
         Returns:
@@ -232,6 +295,28 @@ class DaemonMCPTools:
                 'message': 'Daemon not running. Start daemon first.',
                 'error': 'DAEMON_NOT_RUNNING'
             }
+        
+        # Auto-detect port if not specified
+        if port is None:
+            pico_ports = find_pico_ports()
+            
+            if len(pico_ports) == 0:
+                return {
+                    'success': False,
+                    'message': 'No Raspberry Pi Pico detected. Please specify port manually.',
+                    'error': 'NO_PICO_FOUND',
+                    'available_ports': find_serial_ports()
+                }
+            elif len(pico_ports) == 1:
+                port = pico_ports[0]
+                print(f"Auto-detected Raspberry Pi Pico on {port}")
+            else:
+                return {
+                    'success': False,
+                    'message': f'Multiple Raspberry Pi Picos detected: {pico_ports}. Please specify port.',
+                    'error': 'MULTIPLE_PICOS',
+                    'pico_ports': pico_ports
+                }
         
         # Send connect command
         return self.commands.send_command('connect', port=port, baudrate=baudrate)
