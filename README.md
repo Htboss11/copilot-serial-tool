@@ -8,6 +8,7 @@ A VS Code extension that provides AI-powered serial device communication through
 - **Bidirectional Communication**: Send commands and receive data from serial devices
 - **Real-time Monitoring**: Background daemon captures serial data continuously  
 - **SQLite Storage**: All serial data stored with timestamps for analysis
+- **Auto-Cleanup**: Automatic database maintenance to prevent bloat
 - **Zero Dependencies**: Bundled Python packages - no external installation required
 - **Auto-Detection**: Automatic Raspberry Pi Pico device detection
 - **Port Management**: Clean connection handling with no port locks
@@ -21,7 +22,7 @@ A VS Code extension that provides AI-powered serial device communication through
 
 ## 🤖 GitHub Copilot Integration (MCP)
 
-This extension provides 9 MCP tools for GitHub Copilot to control the serial monitoring daemon:
+This extension provides 12 MCP tools for GitHub Copilot to control the serial monitoring daemon:
 
 ### 💡 Natural Language Device Control
 - **"Start monitoring COM9"** → Connects daemon to serial port
@@ -35,15 +36,18 @@ This extension provides 9 MCP tools for GitHub Copilot to control the serial mon
 
 | Tool | Description | AI Usage Example |
 |------|-------------|------------------|
-| `serial_daemon_start` | Start background daemon | *"Start the daemon without connecting"* |
+| `serial_daemon_start` | Start background daemon | *"Start the daemon with 10K record limit"* |
 | `serial_daemon_stop` | Stop daemon gracefully | *"Stop the serial monitoring daemon"* |
 | `serial_daemon_status` | Get daemon status | *"Is the daemon running?"* |
-| `serial_daemon_connect` | Connect to serial port | *"Connect to COM9 at 115200 baud"* |
-| `serial_daemon_disconnect` | Disconnect from port | *"Release COM9 for other tools"* |
+| `serial_connect_port` | Connect to serial port (auto-detect) | *"Connect to serial"* or *"Connect to COM9"* |
+| `serial_disconnect_port` | Disconnect from port | *"Release COM9 for other tools"* |
 | `serial_send_data` | Send data to device | *"Send 'Hello' to the device"* |
 | `serial_query` | SQL query on data | *"SELECT * FROM serial_data WHERE data LIKE '%ERROR%'"* |
 | `serial_recent` | Get recent data | *"Show last 60 seconds of data"* |
 | `serial_tail` | Get last N lines | *"Show last 100 lines"* |
+| `serial_list_ports` | List all serial ports | *"What serial ports are available?"* |
+| `serial_find_pico` | Auto-detect Pico devices | *"Find my Raspberry Pi Pico"* |
+| `serial_set_echo` | Enable/disable live console echo | *"Enable echo"* or *"Disable echo"* |
 
 See [Daemon Documentation](./daemon/README.md) for detailed architecture and usage.
 
@@ -158,8 +162,8 @@ python daemon/mcp_daemon_tools.py stop
 ## 📚 Documentation
 
 - **[Daemon Architecture](./daemon/README.md)** - Complete daemon documentation
-- **[MCP Server Setup](./MCP_SETUP.md)** - MCP configuration guide
-- **[Architecture Overview](./ARCHITECTURE.md)** - System design
+- **[Architecture Overview](./ARCHITECTURE.md)** - System design details
+- **[Stability Analysis](./STABILITY_ANALYSIS.md)** - Performance and reliability testing
 
 ## 🤝 Contributing
 
@@ -180,38 +184,4 @@ MIT License - see [LICENSE](./LICENSE) for details.
 
 ---
 
-*Made with ❤️ for the maker community. Persistent serial monitoring made simple!*
-
-- Async watch management with pattern matching
-
----
-
-**Enjoy using the Serial Monitor extension with AI agent integration!**
-
-## 📚 Documentation
-
-- **[GitHub Copilot Integration Guide](./docs/COPILOT_INTEGRATION.md)** - Detailed guide for AI tool integration
-- **[MCP Tools Reference](./docs/MCP-TOOLS-GUIDE.md)** - Complete tool documentation for developers
-- **[Python Backend Guide](./docs/README-PYTHON.md)** - Technical details about the Python serial backend
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🔗 Links
-
-- **[GitHub Repository](https://github.com/Htboss11/copilot-serial-tool)**
-- **[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=Htboss11.serial-monitor)**
-- **[Issue Tracker](https://github.com/Htboss11/copilot-serial-tool/issues)**
-
----
-
-**Enjoy seamless serial device interaction with AI assistance!** 🎉
+*Made with ❤️ for the maker community. Persistent serial monitoring made simple with AI assistance!* 🎉

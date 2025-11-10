@@ -5,9 +5,23 @@ Handles singleton enforcement across all VS Code instances
 import os
 import sys
 import time
-import psutil
 from pathlib import Path
 from typing import Optional, Tuple
+
+# === SETUP VENDORED PACKAGES ===
+def setup_vendored_packages():
+    """Add vendored packages to Python path"""
+    daemon_dir = Path(__file__).parent
+    vendor_dir = daemon_dir / "vendor"
+    if vendor_dir.exists():
+        for pkg in ["pyserial", "psutil", "mcp"]:
+            pkg_path = vendor_dir / pkg
+            if pkg_path.exists() and str(pkg_path) not in sys.path:
+                sys.path.insert(0, str(pkg_path))
+
+setup_vendored_packages()
+
+import psutil
 
 
 class DaemonManager:

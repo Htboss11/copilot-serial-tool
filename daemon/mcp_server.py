@@ -124,6 +124,20 @@ class CopilotSerialToolMCPServer:
                 }
             },
             {
+                "name": "serial_set_echo",
+                "description": "Enable or disable live console echo of serial data. When enabled, all incoming serial data is printed to the daemon's log/console in real-time. Useful for monitoring device output while debugging.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean",
+                            "description": "True to enable live echo, False to disable"
+                        }
+                    },
+                    "required": ["enabled"]
+                }
+            },
+            {
                 "name": "serial_query",
                 "description": "Execute SQL query on captured serial data. Query the SQLite database containing all serial port data captured by the daemon.",
                 "inputSchema": {
@@ -254,6 +268,10 @@ class CopilotSerialToolMCPServer:
             elif tool_name == "serial_send_data":
                 data = arguments["data"]
                 return self.daemon_tools.send_data(data)
+            
+            elif tool_name == "serial_set_echo":
+                enabled = arguments["enabled"]
+                return self.daemon_tools.set_echo(enabled)
             
             elif tool_name == "serial_query":
                 sql = arguments["sql"]

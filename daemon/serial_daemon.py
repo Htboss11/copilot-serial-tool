@@ -11,17 +11,51 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
+# === SETUP VENDORED PACKAGES ===
+# Add vendored dependencies to Python path (self-contained - no pip install needed!)
+def setup_vendored_packages():
+    """Add vendored packages to Python path for self-contained execution"""
+    daemon_dir = Path(__file__).parent
+    vendor_dir = daemon_dir / "vendor"
+    
+    if vendor_dir.exists():
+        vendor_packages = [
+            vendor_dir / "pyserial",  # pyserial package
+            vendor_dir / "psutil",    # psutil package
+            vendor_dir / "mcp",       # mcp package
+        ]
+        
+        for package_path in vendor_packages:
+            if package_path.exists():
+                path_str = str(package_path)
+                if path_str not in sys.path:
+                    sys.path.insert(0, path_str)
+
+# Setup vendored packages before importing dependencies
+setup_vendored_packages()
+
 # Import our modules
 from daemon_manager import DaemonManager
 from db_manager import DatabaseManager
 from serial_handler import SerialHandler
 from daemon_commands import DaemonCommands
 
+# === DEBUG LOGGING ===
+DEBUG = os.environ.get('SERIAL_DAEMON_DEBUG', '').lower() in ('1', 'true', 'yes')
+
+def debug_log(component: str, message: str, level: str = "INFO"):
+    """Centralized debug logging (only when DEBUG enabled)"""
+    if DEBUG:
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"[{timestamp}] [{level}] [{component}] {message}", flush=True)
+
 
 class SerialDaemon:
     """Main daemon process for serial monitoring"""
     
-    def __init__(self, max_records: int = 10000, cleanup_interval: int = 60):
+    def __init__(self, max_records: int = 10000, cleanup_interval: int = 60,
+                 rapid_retry_duration: int = 30, slow_retry_duration: int = 600,
+                 echo_to_console: bool = False):
         """
         Initialize daemon (does NOT connect to port immediately)
         Use connect_port() to start monitoring a specific port
@@ -29,6 +63,9 @@ class SerialDaemon:
         Args:
             max_records: Maximum database records to keep (default 10,000)
             cleanup_interval: Seconds between cleanup runs (default 60)
+            rapid_retry_duration: Duration for rapid reconnection retries in seconds (default 30)
+            slow_retry_duration: Duration for slow reconnection retries in seconds (default 600 = 10 min)
+            echo_to_console: If True, print serial data to console in real-time (default False)
         """
         # Initialize managers
         self.daemon_mgr = DaemonManager()
@@ -39,6 +76,13 @@ class SerialDaemon:
         # Database settings
         self.max_records = max_records
         self.cleanup_interval = cleanup_interval
+        
+        # Reconnection settings
+        self.rapid_retry_duration = rapid_retry_duration
+        self.slow_retry_duration = slow_retry_duration
+        
+        # Live output settings
+        self.echo_to_console = echo_to_console
         
         # Current port info (None until connected)
         self.current_port: Optional[str] = None
@@ -55,9 +99,11 @@ class SerialDaemon:
         signal.signal(signal.SIGTERM, self._signal_handler)
         signal.signal(signal.SIGINT, self._signal_handler)
         
-        print(f"Daemon initialized (session: {self.session_id})")
-        print(f"Database settings: max_records={max_records:,}, cleanup_interval={cleanup_interval}s")
-        print("Use connect_port(port, baudrate) to start monitoring")
+        debug_log("DAEMON", f"Initialized (session: {self.session_id})")
+        debug_log("DAEMON", f"Database settings: max_records={max_records:,}, cleanup_interval={cleanup_interval}s")
+        debug_log("DAEMON", f"Reconnection settings: rapid_retry={rapid_retry_duration}s, slow_retry={slow_retry_duration}s")
+        debug_log("DAEMON", f"Live output: echo_to_console={echo_to_console}")
+        debug_log("DAEMON", "Ready to connect to port via connect_port()")
     
     def _signal_handler(self, signum, frame):
         """Handle shutdown signals (SIGTERM, SIGINT)"""
@@ -73,45 +119,54 @@ class SerialDaemon:
         Returns:
             True if started successfully, False otherwise
         """
-        print("=== Starting Serial Monitor Daemon ===")
+        debug_log("DAEMON", "=== Starting Serial Monitor Daemon ===", "INFO")
         
         # SCENARIO 2.3 & 2.4: Clean up stale files from previous crash
+        debug_log("DAEMON", "Checking for stale daemon files...")
         if not self.daemon_mgr.cleanup_stale_files():
             # Daemon already running
             info = self.daemon_mgr.get_daemon_info()
             if info:
-                print(f"Daemon already running (PID {info['pid']}, uptime {info['uptime']:.0f}s)")
+                debug_log("DAEMON", f"Daemon already running (PID {info['pid']}, uptime {info['uptime']:.0f}s)", "WARN")
                 return False
         
         # SCENARIO 2.1/2.2: Acquire lock (atomic operation, handles race conditions)
+        debug_log("DAEMON", "Attempting to acquire daemon lock...")
         if not self.daemon_mgr.acquire_lock():
-            print("Failed to acquire lock - another daemon may be starting")
+            debug_log("DAEMON", "Failed to acquire lock - another daemon may be starting", "ERROR")
             return False
+        debug_log("DAEMON", "Lock acquired successfully")
         
         try:
             # Write PID file (no port yet)
             self.daemon_mgr.write_pid("NONE", self.session_id)
-            print(f"PID file written: {os.getpid()}")
+            debug_log("DAEMON", f"PID file written: {os.getpid()}")
             
             # SCENARIO 2.6: Initialize database (handles corruption)
+            debug_log("DATABASE", "Initializing database...")
             try:
                 self.db_mgr = DatabaseManager(
                     self.daemon_mgr.db_file,
                     max_records=self.max_records,
                     cleanup_interval=self.cleanup_interval
                 )
+                debug_log("DATABASE", "Database manager created")
                 
                 # Check integrity
+                debug_log("DATABASE", "Checking database integrity...")
                 if not self.db_mgr.check_integrity():
-                    print("WARNING: Database integrity check failed, recovering...")
+                    debug_log("DATABASE", "Database integrity check failed, recovering...", "WARN")
                     # Recovery handled internally by db_manager
+                else:
+                    debug_log("DATABASE", "Database integrity OK")
                 
             except Exception as e:
-                print(f"Database initialization failed: {e}")
+                debug_log("DATABASE", f"Database initialization failed: {e}", "ERROR")
                 self._cleanup()
                 return False
             
             # Log daemon start
+            debug_log("DATABASE", "Logging daemon start event...")
             self.db_mgr.insert_immediate(
                 timestamp=datetime.now().isoformat(),
                 port="SYSTEM",
@@ -126,7 +181,7 @@ class SerialDaemon:
             return True
             
         except Exception as e:
-            print(f"Unexpected error during startup: {e}")
+            debug_log("DAEMON", f"Unexpected error during startup: {e}", "ERROR")
             self._cleanup()
             return False
     
@@ -142,23 +197,32 @@ class SerialDaemon:
         Returns:
             True if connected successfully, False otherwise
         """
+        debug_log("PORT", f"connect_port() called: port={port}, baudrate={baudrate}")
+        
         if not self.running:
-            print("Cannot connect port: daemon not running")
+            debug_log("PORT", "Cannot connect: daemon not running", "ERROR")
             return False
         
         # Disconnect existing port if any
         if self.monitoring:
-            print(f"Disconnecting from {self.current_port} before connecting to {port}")
+            debug_log("PORT", f"Disconnecting from {self.current_port} before connecting to {port}")
             self.disconnect_port()
         
-        print(f"=== Connecting to {port} @ {baudrate} baud ===")
+        debug_log("PORT", f"=== Connecting to {port} @ {baudrate} baud ===")
         
         self.current_port = port
         self.current_baudrate = baudrate
         
         try:
-            # Create serial handler
-            self.serial_handler = SerialHandler(port, baudrate)
+            # Create serial handler with reconnection and echo settings
+            debug_log("SERIAL", f"Creating SerialHandler for {port}...")
+            self.serial_handler = SerialHandler(
+                port, 
+                baudrate,
+                rapid_retry_duration=self.rapid_retry_duration,
+                slow_retry_duration=self.slow_retry_duration,
+                echo_to_console=self.echo_to_console
+            )
             
             # Setup callbacks
             self.serial_handler.on_data = self._on_serial_data
@@ -248,6 +312,37 @@ class SerialDaemon:
             print(f"Error disconnecting: {e}")
             return False
     
+    def set_echo(self, enabled: bool) -> bool:
+        """
+        Enable or disable live console echo of serial data
+        
+        Args:
+            enabled: True to echo serial data to console, False to disable
+        
+        Returns:
+            True if changed successfully, False otherwise
+        """
+        if not self.monitoring:
+            print("Cannot set echo: no port connected")
+            return False
+        
+        if self.serial_handler:
+            self.serial_handler.set_echo(enabled)
+            self.echo_to_console = enabled
+            
+            # Log the change
+            status = "ENABLED" if enabled else "DISABLED"
+            self.db_mgr.insert_immediate(
+                timestamp=datetime.now().isoformat(),
+                port=self.current_port or "UNKNOWN",
+                data=f"CONSOLE_ECHO_{status}",
+                session_id=self.session_id
+            )
+            
+            return True
+        
+        return False
+    
     def run(self):
         """Main daemon loop (blocks until stopped)"""
         if not self.running:
@@ -331,6 +426,22 @@ class SerialDaemon:
                     'status': status
                 }
             
+            elif command_name == 'set_echo':
+                enabled = cmd.get('enabled', False)
+                success = self.set_echo(enabled)
+                if success:
+                    status = "enabled" if enabled else "disabled"
+                    response = {
+                        'success': True,
+                        'message': f'Console echo {status}',
+                        'echo_enabled': enabled
+                    }
+                else:
+                    response = {
+                        'success': False,
+                        'message': 'Cannot set echo: not connected to any port'
+                    }
+            
             else:
                 response = {
                     'success': False,
@@ -412,7 +523,12 @@ class SerialDaemon:
     
     def _on_connection_event(self, event: str):
         """Callback for connection events (called from read thread)"""
-        print(f"Connection event: {event}")
+        try:
+            print(f"Connection event: {event}")
+        except UnicodeEncodeError:
+            # Fallback for Unicode issues in console output
+            safe_event = event.encode('ascii', errors='backslashreplace').decode('ascii')
+            print(f"Connection event: {safe_event}")
         
         if self.db_mgr and self.current_port:
             try:
@@ -451,13 +567,19 @@ def main():
     parser.add_argument("--no-autoconnect", action="store_true", help="Don't auto-connect to port on startup")
     parser.add_argument("--max-records", type=int, default=10000, help="Maximum database records to keep (default: 10,000)")
     parser.add_argument("--cleanup-interval", type=int, default=60, help="Seconds between cleanup runs (default: 60)")
+    parser.add_argument("--echo", action="store_true", help="Enable live console echo of serial data")
+    parser.add_argument("--rapid-retry", type=int, default=30, help="Rapid reconnection retry duration in seconds (default: 30)")
+    parser.add_argument("--slow-retry", type=int, default=600, help="Slow reconnection retry duration in seconds (default: 600)")
     
     args = parser.parse_args()
     
     # Create daemon (no port initially)
     daemon = SerialDaemon(
         max_records=args.max_records,
-        cleanup_interval=args.cleanup_interval
+        cleanup_interval=args.cleanup_interval,
+        rapid_retry_duration=args.rapid_retry,
+        slow_retry_duration=args.slow_retry,
+        echo_to_console=args.echo
     )
     
     # Start daemon

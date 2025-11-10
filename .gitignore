@@ -110,15 +110,9 @@ test-output/
 # Serial monitor runtime files
 .serial-monitor/
 serial-sessions/
+daemon/serial_data.db
+daemon/*.db
 
 # Local development
 local/
 temp/
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# Temporary files
-*.tmp
-*.temp

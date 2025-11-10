@@ -9,6 +9,29 @@ import time
 import subprocess
 from pathlib import Path
 from typing import Optional, List, Dict, Any
+from datetime import datetime
+
+# === SETUP VENDORED PACKAGES FIRST ===
+def setup_vendored_packages():
+    """Add vendored packages to Python path for self-contained execution"""
+    daemon_dir = Path(__file__).parent
+    vendor_dir = daemon_dir / "vendor"
+    
+    if vendor_dir.exists():
+        vendor_packages = [
+            vendor_dir / "pyserial",  # pyserial package
+            vendor_dir / "psutil",    # psutil package
+            vendor_dir / "mcp",       # mcp package
+        ]
+        
+        for package_path in vendor_packages:
+            if package_path.exists():
+                path_str = str(package_path)
+                if path_str not in sys.path:
+                    sys.path.insert(0, path_str)
+
+# Setup vendored packages before any other imports
+setup_vendored_packages()
 
 # Add daemon directory to path for imports
 DAEMON_DIR = Path(__file__).parent
@@ -17,6 +40,15 @@ sys.path.insert(0, str(DAEMON_DIR))
 from daemon_manager import DaemonManager
 from db_manager import DatabaseManager
 from daemon_commands import DaemonCommands
+
+# === DEBUG LOGGING ===
+DEBUG = os.environ.get('SERIAL_DAEMON_DEBUG', '').lower() in ('1', 'true', 'yes')
+
+def debug_log(component: str, message: str, level: str = "INFO"):
+    """Centralized debug logging (only when DEBUG enabled)"""
+    if DEBUG:
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"[{timestamp}] [{level}] [{component}] {message}", flush=True)
 
 
 def find_serial_ports() -> List[Dict[str, Any]]:
@@ -99,9 +131,14 @@ class DaemonMCPTools:
         Returns:
             Status dictionary with success/error information
         """
+        debug_log("MCP_TOOLS", f"start_daemon() called: auto_connect={auto_connect}, port={port}, baudrate={baudrate}")
+        debug_log("MCP_TOOLS", f"Database settings: max_records={max_records}, cleanup_interval={cleanup_interval}")
+        
         # Check if already running
+        debug_log("MCP_TOOLS", "Checking if daemon already running...")
         if self.daemon_mgr.check_daemon_health():
             info = self.daemon_mgr.get_daemon_info()
+            debug_log("MCP_TOOLS", f"Daemon already running: PID={info.get('pid')}, port={info.get('port')}", "WARN")
             return {
                 'success': True,
                 'message': 'Daemon already running',
@@ -110,11 +147,13 @@ class DaemonMCPTools:
             }
         
         # Clean up stale files
+        debug_log("MCP_TOOLS", "Cleaning up stale daemon files...")
         self.daemon_mgr.cleanup_stale_files()
         
         # Start daemon as detached background process
         try:
             # Build command args
+            debug_log("MCP_TOOLS", f"Building daemon command: Python={sys.executable}")
             cmd_args = [sys.executable, str(self.daemon_script)]
             
             # Add database settings
@@ -122,36 +161,60 @@ class DaemonMCPTools:
             cmd_args.extend(['--cleanup-interval', str(cleanup_interval)])
             
             if auto_connect and port:
+                debug_log("MCP_TOOLS", f"Auto-connect mode: {port} @ {baudrate} baud")
                 cmd_args.extend(['--port', port, '--baudrate', str(baudrate)])
             else:
+                debug_log("MCP_TOOLS", "No auto-connect: daemon will wait for connect command")
                 cmd_args.append('--no-autoconnect')
             
             # Use subprocess to start daemon
             # IMPORTANT: Don't capture stdout/stderr to avoid pipe blocking
+            debug_log("MCP_TOOLS", f"Starting daemon process: {' '.join(cmd_args)}")
+            
+            # Redirect output to log file for debugging (optional)
+            log_file = self.daemon_mgr.log_file
+            debug_log("MCP_TOOLS", f"Daemon output will be logged to: {log_file}")
+            
             if sys.platform == 'win32':
-                # Windows: use CREATE_NEW_PROCESS_GROUP to detach
-                process = subprocess.Popen(
-                    cmd_args,
-                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    stdin=subprocess.DEVNULL
-                )
+                # Windows: use CREATE_NEW_PROCESS_GROUP to detach + DETACHED_PROCESS
+                debug_log("MCP_TOOLS", "Platform: Windows (using CREATE_NEW_PROCESS_GROUP + DETACHED_PROCESS)")
+                
+                # Open log file for daemon output
+                with open(log_file, 'a') as log:
+                    process = subprocess.Popen(
+                        cmd_args,
+                        creationflags=(
+                            subprocess.CREATE_NEW_PROCESS_GROUP | 
+                            subprocess.CREATE_NO_WINDOW |
+                            0x00000008  # DETACHED_PROCESS - completely detach from parent console
+                        ),
+                        stdout=log,
+                        stderr=log,
+                        stdin=subprocess.DEVNULL
+                    )
             else:
-                # Unix: use nohup-style detachment
-                process = subprocess.Popen(
-                    cmd_args,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    stdin=subprocess.DEVNULL,
-                    start_new_session=True
-                )
+                # Unix: use nohup-style detachment with proper process group
+                debug_log("MCP_TOOLS", "Platform: Unix (using start_new_session + nohup)")
+                
+                with open(log_file, 'a') as log:
+                    process = subprocess.Popen(
+                        cmd_args,
+                        stdout=log,
+                        stderr=log,
+                        stdin=subprocess.DEVNULL,
+                        start_new_session=True,
+                        preexec_fn=os.setpgrp if hasattr(os, 'setpgrp') else None
+                    )
+            
+            debug_log("MCP_TOOLS", f"Daemon process spawned with PID: {process.pid}")
             
             # Wait for daemon to start (check for PID file)
-            for _ in range(50):  # 5 seconds max
+            debug_log("MCP_TOOLS", "Waiting for daemon to initialize (max 5s)...")
+            for i in range(50):  # 5 seconds max
                 time.sleep(0.1)
                 if self.daemon_mgr.check_daemon_health():
                     info = self.daemon_mgr.get_daemon_info()
+                    debug_log("MCP_TOOLS", f"[SUCCESS] Daemon started successfully after {(i+1)*0.1:.1f}s", "SUCCESS")
                     return {
                         'success': True,
                         'message': 'Daemon started successfully',
@@ -288,19 +351,27 @@ class DaemonMCPTools:
         Returns:
             Status dictionary
         """
+        debug_log("MCP_TOOLS", f"connect_port() called: port={port}, baudrate={baudrate}")
+        
         # Check if daemon is running
+        debug_log("MCP_TOOLS", "Checking daemon health...")
         if not self.daemon_mgr.check_daemon_health():
+            debug_log("MCP_TOOLS", "Daemon not running!", "ERROR")
             return {
                 'success': False,
                 'message': 'Daemon not running. Start daemon first.',
                 'error': 'DAEMON_NOT_RUNNING'
             }
+        debug_log("MCP_TOOLS", "Daemon is running")
         
         # Auto-detect port if not specified
         if port is None:
+            debug_log("MCP_TOOLS", "Port not specified, auto-detecting Raspberry Pi Pico...")
             pico_ports = find_pico_ports()
+            debug_log("MCP_TOOLS", f"Found {len(pico_ports)} Pico device(s)")
             
             if len(pico_ports) == 0:
+                debug_log("MCP_TOOLS", "No Pico devices found", "ERROR")
                 return {
                     'success': False,
                     'message': 'No Raspberry Pi Pico detected. Please specify port manually.',
@@ -359,6 +430,26 @@ class DaemonMCPTools:
         
         # Send write command
         return self.commands.send_command('write', data=data)
+    
+    def set_echo(self, enabled: bool) -> Dict[str, Any]:
+        """
+        Enable or disable live console echo of serial data
+        
+        Args:
+            enabled: True to enable echo, False to disable
+        
+        Returns:
+            Success status and message
+        """
+        if not self.daemon_mgr.check_daemon_health():
+            return {
+                'success': False,
+                'message': 'Daemon not running',
+                'error': 'DAEMON_NOT_RUNNING'
+            }
+        
+        # Send set_echo command
+        return self.commands.send_command('set_echo', enabled=enabled)
     
     def query_data(self, sql: str, params: Optional[List[Any]] = None) -> Dict[str, Any]:
         """
